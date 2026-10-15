@@ -26,6 +26,9 @@ namespace LocalAI.Persistence.Migrations
                     b.Property<long>("CreatedAt")
                         .HasColumnType("INTEGER");
 
+                    b.Property<Guid?>("OwnerId")
+                        .HasColumnType("TEXT");
+
                     b.Property<string>("Title")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -37,6 +40,8 @@ namespace LocalAI.Persistence.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("UpdatedAt");
+
+                    b.HasIndex("OwnerId", "UpdatedAt");
 
                     b.ToTable("conversations", (string)null);
                 });
@@ -105,6 +110,59 @@ namespace LocalAI.Persistence.Migrations
                     b.ToTable("messages", (string)null);
                 });
 
+            modelBuilder.Entity("LocalAI.Persistence.Entities.UserEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long?>("LastLoginAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("NormalizedUsername")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("PasswordHash")
+                        .IsRequired()
+                        .HasMaxLength(512)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("SessionVersion")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NormalizedUsername")
+                        .IsUnique();
+
+                    b.ToTable("users", (string)null);
+                });
+
+            modelBuilder.Entity("LocalAI.Persistence.Entities.ConversationEntity", b =>
+                {
+                    b.HasOne("LocalAI.Persistence.Entities.UserEntity", "Owner")
+                        .WithMany("Conversations")
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Owner");
+                });
+
             modelBuilder.Entity("LocalAI.Persistence.Entities.MessageEntity", b =>
                 {
                     b.HasOne("LocalAI.Persistence.Entities.ConversationEntity", "Conversation")
@@ -119,6 +177,11 @@ namespace LocalAI.Persistence.Migrations
             modelBuilder.Entity("LocalAI.Persistence.Entities.ConversationEntity", b =>
                 {
                     b.Navigation("Messages");
+                });
+
+            modelBuilder.Entity("LocalAI.Persistence.Entities.UserEntity", b =>
+                {
+                    b.Navigation("Conversations");
                 });
 #pragma warning restore 612, 618
         }

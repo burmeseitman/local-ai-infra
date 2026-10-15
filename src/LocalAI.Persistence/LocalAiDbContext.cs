@@ -7,6 +7,8 @@ namespace LocalAI.Persistence;
 
 internal sealed class LocalAiDbContext(DbContextOptions<LocalAiDbContext> options) : DbContext(options)
 {
+    public DbSet<UserEntity> Users => Set<UserEntity>();
+
     public DbSet<ConversationEntity> Conversations => Set<ConversationEntity>();
 
     public DbSet<MessageEntity> Messages => Set<MessageEntity>();
@@ -19,12 +21,28 @@ internal sealed class LocalAiDbContext(DbContextOptions<LocalAiDbContext> option
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<UserEntity>(e =>
+        {
+            e.ToTable("users");
+            e.HasKey(u => u.Id);
+            e.Property(u => u.Username).HasMaxLength(32).IsRequired();
+            e.Property(u => u.NormalizedUsername).HasMaxLength(32).IsRequired();
+            e.HasIndex(u => u.NormalizedUsername).IsUnique();
+            e.Property(u => u.PasswordHash).HasMaxLength(512).IsRequired();
+            e.Property(u => u.Role).HasMaxLength(16).IsRequired();
+            e.HasMany(u => u.Conversations)
+                .WithOne(c => c.Owner)
+                .HasForeignKey(c => c.OwnerId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         modelBuilder.Entity<ConversationEntity>(e =>
         {
             e.ToTable("conversations");
             e.HasKey(c => c.Id);
             e.Property(c => c.Title).HasMaxLength(200).IsRequired();
             e.HasIndex(c => c.UpdatedAt);
+            e.HasIndex(c => new { c.OwnerId, c.UpdatedAt });
             e.HasMany(c => c.Messages)
                 .WithOne(m => m.Conversation)
                 .HasForeignKey(m => m.ConversationId)

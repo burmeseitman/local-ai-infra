@@ -13,6 +13,7 @@ public class ConversationServiceTests
     private readonly InMemoryConversationStore _store = new();
     private readonly InferenceMetrics _metrics = new(TimeProvider.System);
     private readonly ConversationService _service;
+    private static readonly Guid Owner = Guid.NewGuid();
 
     public ConversationServiceTests()
     {
@@ -39,12 +40,12 @@ public class ConversationServiceTests
     [Fact]
     public async Task Turn_persists_user_and_completed_reply_with_stats_and_auto_title()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
 
-        var turn = await _service.BeginTurnAsync(conversation.Id, Turn("  What is\nSSE?  "), CancellationToken.None);
+        var turn = await _service.BeginTurnAsync(Owner, conversation.Id, Turn("  What is\nSSE?  "), CancellationToken.None);
         await Run(turn);
 
-        var stored = await _service.GetAsync(conversation.Id, CancellationToken.None);
+        var stored = await _service.GetAsync(Owner, conversation.Id, CancellationToken.None);
         Assert.Equal("What is SSE?", stored.Title);
         Assert.Collection(
             stored.Messages,
@@ -59,25 +60,25 @@ public class ConversationServiceTests
     [Fact]
     public async Task Explicit_title_is_not_replaced()
     {
-        var conversation = await _service.CreateAsync("Planning", CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, "Planning", CancellationToken.None);
 
-        await Run(await _service.BeginTurnAsync(conversation.Id, Turn("hello"), CancellationToken.None));
+        await Run(await _service.BeginTurnAsync(Owner, conversation.Id, Turn("hello"), CancellationToken.None));
 
-        Assert.Equal("Planning", (await _service.GetAsync(conversation.Id, CancellationToken.None)).Title);
+        Assert.Equal("Planning", (await _service.GetAsync(Owner, conversation.Id, CancellationToken.None)).Title);
     }
 
     [Fact]
     public async Task Provider_receives_stored_history_ending_with_new_message_and_skips_failed_turns()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
-        await Run(await _service.BeginTurnAsync(conversation.Id, Turn("first"), CancellationToken.None));
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
+        await Run(await _service.BeginTurnAsync(Owner, conversation.Id, Turn("first"), CancellationToken.None));
 
         _provider.StreamHandler = (_, ct) => FakeChatProvider.Throwing(InferenceException.Unavailable(), ct);
         await Assert.ThrowsAsync<InferenceException>(async () =>
-            await Run(await _service.BeginTurnAsync(conversation.Id, Turn("second"), CancellationToken.None)));
+            await Run(await _service.BeginTurnAsync(Owner, conversation.Id, Turn("second"), CancellationToken.None)));
 
         _provider.StreamHandler = (_, ct) => FakeChatProvider.Yield(ct, new ChatStreamChunk("ok"), FakeChatProvider.Final());
-        await Run(await _service.BeginTurnAsync(conversation.Id, Turn("third"), CancellationToken.None));
+        await Run(await _service.BeginTurnAsync(Owner, conversation.Id, Turn("third"), CancellationToken.None));
 
         Assert.Equal(
             [(ChatRole.User, "first"), (ChatRole.Assistant, "Hello, world"), (ChatRole.User, "second"), (ChatRole.User, "third")],
@@ -87,14 +88,14 @@ public class ConversationServiceTests
     [Fact]
     public async Task Failed_reply_is_persisted_with_error_code_and_partial_text()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
         _provider.StreamHandler = (_, ct) => FakeChatProvider.Throwing(
             InferenceException.Timeout(TimeSpan.FromSeconds(30)), ct, new ChatStreamChunk("partial"));
 
         await Assert.ThrowsAsync<InferenceException>(async () =>
-            await Run(await _service.BeginTurnAsync(conversation.Id, Turn("go"), CancellationToken.None)));
+            await Run(await _service.BeginTurnAsync(Owner, conversation.Id, Turn("go"), CancellationToken.None)));
 
-        var reply = (await _service.GetAsync(conversation.Id, CancellationToken.None)).Messages[^1];
+        var reply = (await _service.GetAsync(Owner, conversation.Id, CancellationToken.None)).Messages[^1];
         Assert.Equal((MessageStatus.Error, "partial", "provider_timeout"), (reply.Status, reply.Content, reply.ErrorCode));
         Assert.NotNull(reply.ErrorMessage);
     }
@@ -102,11 +103,11 @@ public class ConversationServiceTests
     [Fact]
     public async Task Cancelled_reply_is_persisted_as_stopped_and_lock_is_released()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
         _provider.StreamHandler = (_, ct) => _provider.HangAfter(new ChatStreamChunk("half"), ct);
         using var cts = new CancellationTokenSource();
 
-        var turn = await _service.BeginTurnAsync(conversation.Id, Turn("long task"), CancellationToken.None);
+        var turn = await _service.BeginTurnAsync(Owner, conversation.Id, Turn("long task"), CancellationToken.None);
         var ex = await Record.ExceptionAsync(async () =>
         {
             await foreach (var _ in _service.StreamTurnAsync(turn, cts.Token))
@@ -116,31 +117,31 @@ public class ConversationServiceTests
         });
 
         Assert.IsAssignableFrom<OperationCanceledException>(ex);
-        var reply = (await _service.GetAsync(conversation.Id, CancellationToken.None)).Messages[^1];
+        var reply = (await _service.GetAsync(Owner, conversation.Id, CancellationToken.None)).Messages[^1];
         Assert.Equal((ChatRole.Assistant, MessageStatus.Stopped, "half"), (reply.Role, reply.Status, reply.Content));
 
         // Lock released: a new turn can start.
         _provider.StreamHandler = (_, ct) => FakeChatProvider.Yield(ct, FakeChatProvider.Final());
-        await Run(await _service.BeginTurnAsync(conversation.Id, Turn("again"), CancellationToken.None));
+        await Run(await _service.BeginTurnAsync(Owner, conversation.Id, Turn("again"), CancellationToken.None));
     }
 
     [Fact]
     public async Task Unknown_model_stores_nothing()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
 
         var ex = await Assert.ThrowsAsync<InferenceException>(() =>
-            _service.BeginTurnAsync(conversation.Id, Turn("hi", model: "ghost:1b"), CancellationToken.None));
+            _service.BeginTurnAsync(Owner, conversation.Id, Turn("hi", model: "ghost:1b"), CancellationToken.None));
 
         Assert.Equal(InferenceErrorCode.ModelNotFound, ex.Code);
-        Assert.Empty((await _service.GetAsync(conversation.Id, CancellationToken.None)).Messages);
+        Assert.Empty((await _service.GetAsync(Owner, conversation.Id, CancellationToken.None)).Messages);
     }
 
     [Fact]
     public async Task Missing_conversation_is_reported()
     {
         var ex = await Assert.ThrowsAsync<ConversationException>(() =>
-            _service.BeginTurnAsync(Guid.NewGuid(), Turn("hi"), CancellationToken.None));
+            _service.BeginTurnAsync(Owner, Guid.NewGuid(), Turn("hi"), CancellationToken.None));
 
         Assert.Equal(ConversationErrorCode.NotFound, ex.Code);
     }
@@ -148,31 +149,31 @@ public class ConversationServiceTests
     [Fact]
     public async Task Concurrent_turns_in_one_conversation_are_rejected()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
-        using var first = await _service.BeginTurnAsync(conversation.Id, Turn("one"), CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
+        using var first = await _service.BeginTurnAsync(Owner, conversation.Id, Turn("one"), CancellationToken.None);
 
         var ex = await Assert.ThrowsAsync<ConversationException>(() =>
-            _service.BeginTurnAsync(conversation.Id, Turn("two"), CancellationToken.None));
+            _service.BeginTurnAsync(Owner, conversation.Id, Turn("two"), CancellationToken.None));
         Assert.Equal(ConversationErrorCode.Busy, ex.Code);
 
-        var delete = await Assert.ThrowsAsync<ConversationException>(() => _service.DeleteAsync(conversation.Id, CancellationToken.None));
+        var delete = await Assert.ThrowsAsync<ConversationException>(() => _service.DeleteAsync(Owner, conversation.Id, CancellationToken.None));
         Assert.Equal(ConversationErrorCode.Busy, delete.Code);
     }
 
     [Fact]
     public async Task Regenerate_replaces_last_reply()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
         _provider.StreamHandler = (_, ct) => FakeChatProvider.Throwing(InferenceException.Unavailable(), ct, new ChatStreamChunk("bro"));
         await Assert.ThrowsAsync<InferenceException>(async () =>
-            await Run(await _service.BeginTurnAsync(conversation.Id, Turn("question"), CancellationToken.None)));
+            await Run(await _service.BeginTurnAsync(Owner, conversation.Id, Turn("question"), CancellationToken.None)));
 
         _provider.StreamHandler = (_, ct) => FakeChatProvider.Yield(ct, new ChatStreamChunk("fixed"), FakeChatProvider.Final());
-        var turn = await _service.BeginRegenerateAsync(conversation.Id, "tiny:1b", new GenerationOptions(null, 64), CancellationToken.None);
+        var turn = await _service.BeginRegenerateAsync(Owner, conversation.Id, "tiny:1b", new GenerationOptions(null, 64), CancellationToken.None);
         Assert.Null(turn.UserMessageId);
         await Run(turn);
 
-        var messages = (await _service.GetAsync(conversation.Id, CancellationToken.None)).Messages;
+        var messages = (await _service.GetAsync(Owner, conversation.Id, CancellationToken.None)).Messages;
         Assert.Equal([(ChatRole.User, "question"), (ChatRole.Assistant, "fixed")], messages.Select(m => (m.Role, m.Content)));
         Assert.Equal([(ChatRole.User, "question")], _provider.LastRequest!.Messages.Select(m => (m.Role, m.Content)));
     }
@@ -180,10 +181,10 @@ public class ConversationServiceTests
     [Fact]
     public async Task Regenerate_without_a_user_message_is_rejected()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
 
         var ex = await Assert.ThrowsAsync<ConversationException>(() =>
-            _service.BeginRegenerateAsync(conversation.Id, "tiny:1b", new GenerationOptions(null, 64), CancellationToken.None));
+            _service.BeginRegenerateAsync(Owner, conversation.Id, "tiny:1b", new GenerationOptions(null, 64), CancellationToken.None));
 
         Assert.Equal(ConversationErrorCode.NothingToRegenerate, ex.Code);
     }
@@ -191,12 +192,46 @@ public class ConversationServiceTests
     [Fact]
     public async Task Delete_removes_conversation()
     {
-        var conversation = await _service.CreateAsync(null, CancellationToken.None);
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
 
-        await _service.DeleteAsync(conversation.Id, CancellationToken.None);
+        await _service.DeleteAsync(Owner, conversation.Id, CancellationToken.None);
 
-        await Assert.ThrowsAsync<ConversationException>(() => _service.GetAsync(conversation.Id, CancellationToken.None));
-        await Assert.ThrowsAsync<ConversationException>(() => _service.DeleteAsync(conversation.Id, CancellationToken.None));
+        await Assert.ThrowsAsync<ConversationException>(() => _service.GetAsync(Owner, conversation.Id, CancellationToken.None));
+        await Assert.ThrowsAsync<ConversationException>(() => _service.DeleteAsync(Owner, conversation.Id, CancellationToken.None));
+    }
+
+    [Fact]
+    public async Task Other_users_cannot_see_or_use_a_conversation()
+    {
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
+        var intruder = Guid.NewGuid();
+
+        Assert.Empty(await _service.ListAsync(intruder, 50, CancellationToken.None));
+        Assert.Single(await _service.ListAsync(Owner, 50, CancellationToken.None));
+        foreach (var attempt in new Func<Task>[]
+        {
+            () => _service.GetAsync(intruder, conversation.Id, CancellationToken.None),
+            () => _service.RenameAsync(intruder, conversation.Id, "mine", CancellationToken.None),
+            () => _service.DeleteAsync(intruder, conversation.Id, CancellationToken.None),
+            () => _service.BeginTurnAsync(intruder, conversation.Id, Turn("hi"), CancellationToken.None),
+            () => _service.BeginRegenerateAsync(intruder, conversation.Id, "tiny:1b", new GenerationOptions(null, 64), CancellationToken.None),
+        })
+        {
+            var ex = await Assert.ThrowsAsync<ConversationException>(attempt);
+            Assert.Equal(ConversationErrorCode.NotFound, ex.Code);
+        }
+    }
+
+    [Fact]
+    public async Task Another_users_busy_conversation_reads_as_not_found()
+    {
+        var conversation = await _service.CreateAsync(Owner, null, CancellationToken.None);
+        using var running = await _service.BeginTurnAsync(Owner, conversation.Id, Turn("one"), CancellationToken.None);
+
+        var ex = await Assert.ThrowsAsync<ConversationException>(() =>
+            _service.BeginTurnAsync(Guid.NewGuid(), conversation.Id, Turn("two"), CancellationToken.None));
+
+        Assert.Equal(ConversationErrorCode.NotFound, ex.Code);
     }
 
     [Theory]

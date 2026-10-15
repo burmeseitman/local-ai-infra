@@ -74,6 +74,11 @@ services:
       Chat__MaxTokensLimit: ${CHAT_MAX_TOKENS_LIMIT:-4096}
       Chat__AllowRemoteModels: ${CHAT_ALLOW_REMOTE_MODELS:-false}
       Persistence__ConnectionString: Data Source=/app/data/localai.db
+      # Cookie-signing keys live next to the database so sessions survive restarts.
+      Session__KeysDirectory: /app/data/keys
+      Session__SecureCookie: ${SESSION_SECURE_COOKIE:-false}
+      Session__Lifetime: ${SESSION_LIFETIME:-7.00:00:00}
+      Auth__MaxFailedLogins: ${AUTH_MAX_FAILED_LOGINS:-5}
     ports:
       # Loopback only: for curl/Swagger on the host. The browser uses the web proxy.
       - "127.0.0.1:${API_PORT:-5080}:8080"
@@ -84,7 +89,7 @@ services:
     tmpfs:
       - /tmp
     volumes:
-      # Conversation history (SQLite). Survives `docker compose down`; removed by `down -v`.
+      # Users, conversation history (SQLite) and session keys. Survives `docker compose down`; removed by `down -v`.
       - api-data:/app/data
 
   web:

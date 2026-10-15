@@ -7,7 +7,7 @@
 | Dashboard | `src/LocalAI.Web` | Chat interaction, model selection, incremental rendering of the stream, loading/error/empty states, connection status, responsive layout. Holds conversation state in memory only. |
 | Web server | `infrastructure/docker/nginx.conf` | Serves the static SPA and reverse-proxies `/api` with buffering disabled. Sets CSP and security headers. Gives the browser a single origin, so no CORS is needed. |
 | HTTP API | `src/LocalAI.Api` | Endpoints, JSON contracts, validation responses, the SSE writer, Problem Details mapping, request-size and concurrency limits, configuration validation, CORS, Swagger. |
-| Domain | `src/LocalAI.Core` | `IChatProvider` and `IConversationStore` abstractions, `ConversationService` (turn orchestration and persistence of every outcome), `HistoryWindow` (context selection), `ConversationLocks` (one generation per conversation), chat and model records, `ChatRequestValidator`, `ModelCatalog` (discovery, caching, model policy), `ChatService` (orchestration plus metrics), `ProviderStatusService` (health without inference), `InferenceMetrics`, `InferenceException`. No ASP.NET or Ollama dependency. |
+| Domain | `src/LocalAI.Core` | `IChatProvider`, `IConversationStore` and `IUserStore` abstractions, `AccountService` and `LoginThrottle` (local accounts), `ConversationService` (turn orchestration and persistence of every outcome), `HistoryWindow` (context selection), `ConversationLocks` (one generation per conversation), chat and model records, `ChatRequestValidator`, `ModelCatalog` (discovery, caching, model policy), `ChatService` (orchestration plus metrics), `ProviderStatusService` (health without inference), `InferenceMetrics`, `InferenceException`. No web-host or Ollama dependency (only the `Microsoft.Extensions.Identity.Core` password hasher). |
 | Persistence | `src/LocalAI.Persistence` | EF Core `LocalAiDbContext` (SQLite), code-first migrations, `SqliteConversationStore : IConversationStore`. Applies migrations and enables WAL at startup. |
 | Provider | `src/LocalAI.Providers` | The only code that knows the Ollama protocol. `OllamaClient` handles HTTP, timeouts, NDJSON parsing, and error translation; `OllamaProvider` maps wire DTOs to domain records. |
 | Inference | `ollama` container | Model storage (volume `ollama-models`), loading, and generation. |
@@ -48,6 +48,21 @@ sequenceDiagram
 ```
 
 The key decision is that **all checks that can fail cheaply happen before the first byte is written**. Validation, model existence, model policy, and provider reachability all happen here, so they get proper HTTP status codes and Problem Details. Once the `200` and `start` event are sent, failures can only be reported in-band, as an `error` event.
+
+## Authentication (Phase 2)
+
+| Piece | Where | Notes |
+|---|---|---|
+| Accounts | `Core/Services/AccountService` | Handles setup (first admin, exactly once), sign-in, password changes, and user administration with last-admin and self-modification guards. Password hashing uses `PasswordHasher` (PBKDF2-HMAC-SHA512, Identity v3 format), with automatic rehash on login. Unknown users are checked against a dummy hash so timing doesn't reveal which usernames exist |
+| Throttling | `Core/Services/LoginThrottle` | Per-username failure window and lockout (default 5 failures → 5 minutes). Keyed by username rather than IP, so it works behind the nginx proxy. In-memory |
+| Storage | `Persistence/SqliteUserStore` | A `users` table with a unique normalized username. `SessionVersion` is incremented on password or role change. `conversations.OwnerId` is a foreign key with `ON DELETE CASCADE`. Setup runs in an immediate transaction plus a process lock, and claims ownerless conversations from before accounts existed |
+| Sessions | `Api/Auth/SessionPrincipal` + cookie handler | Claims: id, name, role, session version. `OnValidatePrincipal` reloads the account on every request and rejects deleted or changed accounts. The redirect events are replaced by 401/403 Problem Details |
+| Authorization | `Program.cs` | The fallback policy requires an authenticated user; health and sign-in endpoints opt out with `AllowAnonymous`. `/api/users` requires the `admin` policy |
+| Keys | Data Protection | Keys are persisted to `Session:KeysDirectory` (inside the `api-data` volume), so sessions survive restarts |
+
+**Why cookies rather than bearer tokens?** The dashboard is a same-origin SPA behind nginx. An HttpOnly cookie can't be read by injected script, `SameSite=Strict` blocks cross-site requests (the CSRF vector), and there's no token storage in the browser to get wrong.
+
+**Ownership.** `ConversationService` takes an explicit `ownerId` on every call. It checks ownership *before* taking the conversation lock, so another user's busy conversation reads as "not found" rather than "busy", and it re-reads the history under the lock.
 
 ## Conversation turn lifecycle (Phase 2)
 

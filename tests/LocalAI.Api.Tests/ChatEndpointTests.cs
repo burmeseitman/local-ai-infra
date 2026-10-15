@@ -21,7 +21,7 @@ public class ChatEndpointTests : IDisposable
     [Fact]
     public async Task Stream_emits_start_deltas_and_done_as_server_sent_events()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.SendAsync(Sse.StreamRequest(Sse.ChatBody()), HttpCompletionOption.ResponseHeadersRead);
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -45,7 +45,7 @@ public class ChatEndpointTests : IDisposable
         var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
         _factory.Provider.StreamHandler = (_, ct) => _factory.Provider.HangAfter(
             new ChatStreamChunk("first"), ct, release.Task, new ChatStreamChunk(" second"), FakeChatProvider.Final());
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.SendAsync(Sse.StreamRequest(Sse.ChatBody()), HttpCompletionOption.ResponseHeadersRead);
 
         var received = new List<SseEvent>();
@@ -69,7 +69,7 @@ public class ChatEndpointTests : IDisposable
     {
         _factory.Provider.StreamHandler = (_, ct) => FakeChatProvider.Throwing(
             InferenceException.Timeout(TimeSpan.FromSeconds(30)), ct, new ChatStreamChunk("partial"));
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.SendAsync(Sse.StreamRequest(Sse.ChatBody()), HttpCompletionOption.ResponseHeadersRead);
 
         var events = await Sse.ReadAll(response);
@@ -85,7 +85,7 @@ public class ChatEndpointTests : IDisposable
     {
         _factory.Provider.StreamHandler = (_, ct) => FakeChatProvider.Throwing(
             new InvalidOperationException("secret connection string xyz"), ct);
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.SendAsync(Sse.StreamRequest(Sse.ChatBody()), HttpCompletionOption.ResponseHeadersRead);
 
         var raw = await response.Content.ReadAsStringAsync();
@@ -99,7 +99,7 @@ public class ChatEndpointTests : IDisposable
     public async Task Client_disconnect_cancels_the_provider_stream_and_is_counted_as_cancelled()
     {
         _factory.Provider.StreamHandler = (_, ct) => _factory.Provider.HangAfter(new ChatStreamChunk("tick"), ct);
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
 
         using (var cts = new CancellationTokenSource())
         {
@@ -129,7 +129,7 @@ public class ChatEndpointTests : IDisposable
     [Fact]
     public async Task Validation_errors_return_problem_details_before_streaming()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.SendAsync(Sse.StreamRequest(new { model = "tiny:1b", messages = new[] { new { role = "user", content = "   " } } }));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -143,7 +143,7 @@ public class ChatEndpointTests : IDisposable
     [Fact]
     public async Task Overlong_prompt_is_rejected()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.PostAsJsonAsync("/api/chat", Sse.ChatBody(content: new string('x', 8_001)));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -152,7 +152,7 @@ public class ChatEndpointTests : IDisposable
     [Fact]
     public async Task Unknown_model_returns_404_problem_and_never_reaches_provider()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.SendAsync(Sse.StreamRequest(Sse.ChatBody(model: "ghost:70b")));
 
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
@@ -166,7 +166,7 @@ public class ChatEndpointTests : IDisposable
     public async Task Provider_down_returns_503_problem()
     {
         _factory.Provider.ListModelsException = InferenceException.Unavailable(new HttpRequestException("refused"));
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.SendAsync(Sse.StreamRequest(Sse.ChatBody()));
 
         Assert.Equal(HttpStatusCode.ServiceUnavailable, response.StatusCode);
@@ -179,7 +179,7 @@ public class ChatEndpointTests : IDisposable
     [Fact]
     public async Task Malformed_json_returns_problem_details()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.PostAsync("/api/chat", new StringContent("{oops", Encoding.UTF8, "application/json"));
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
@@ -190,7 +190,7 @@ public class ChatEndpointTests : IDisposable
     [Fact]
     public async Task Oversized_body_returns_413()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.PostAsync(
             "/api/chat",
             new StringContent($"{{\"model\":\"tiny:1b\",\"messages\":[{{\"role\":\"user\",\"content\":\"{new string('x', 70_000)}\"}}]}}", Encoding.UTF8, "application/json"));
@@ -201,7 +201,7 @@ public class ChatEndpointTests : IDisposable
     [Fact]
     public async Task Non_streaming_endpoint_returns_full_reply()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.PostAsJsonAsync("/api/chat", Sse.ChatBody());
 
         Assert.Equal(HttpStatusCode.OK, response.StatusCode);
@@ -216,7 +216,7 @@ public class ChatEndpointTests : IDisposable
     {
         _factory.Provider.StreamHandler = (_, ct) => FakeChatProvider.Throwing(
             new InferenceException(InferenceErrorCode.ModelLoadFailed, "The model could not be loaded."), ct);
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         using var response = await client.PostAsJsonAsync("/api/chat", Sse.ChatBody());
 
         Assert.Equal(HttpStatusCode.BadGateway, response.StatusCode);
@@ -229,7 +229,7 @@ public class ChatEndpointTests : IDisposable
     {
         using var factory = new ApiFactory { MaxConcurrentGenerations = 1 };
         factory.Provider.StreamHandler = (_, ct) => factory.Provider.HangAfter(new ChatStreamChunk("busy"), ct);
-        using var client = factory.CreateClient();
+        using var client = await factory.CreateAuthenticatedClientAsync();
 
         using var cts = new CancellationTokenSource();
         using var first = await client.SendAsync(Sse.StreamRequest(Sse.ChatBody()), HttpCompletionOption.ResponseHeadersRead, cts.Token);

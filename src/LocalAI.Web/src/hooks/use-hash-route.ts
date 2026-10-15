@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 
-export type Route = "chat" | "models" | "system";
+export type Route = "chat" | "models" | "system" | "users" | "account";
 
 export interface Location {
   route: Route;
@@ -10,7 +10,7 @@ export interface Location {
   chatId: string | null;
 }
 
-const ROUTES: readonly Route[] = ["chat", "models", "system"];
+const ROUTES: readonly Route[] = ["chat", "models", "system", "users", "account"];
 
 export function parseHash(hash: string, previous?: Location): Location {
   const [head = "", ...rest] = hash.replace(/^#\/?/, "").split("/");

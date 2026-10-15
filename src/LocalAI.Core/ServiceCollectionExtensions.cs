@@ -17,6 +17,11 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<ChatOptions>, ChatOptionsValidator>());
 
+        services.AddOptions<AccountOptions>()
+            .Bind(configuration.GetSection(AccountOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<InferenceMetrics>();
         services.TryAddSingleton<ModelCatalog>();
@@ -25,6 +30,8 @@ public static class ServiceCollectionExtensions
         services.TryAddScoped<ChatService>();
         services.TryAddSingleton<ConversationLocks>();
         services.TryAddScoped<ConversationService>();
+        services.TryAddSingleton<LoginThrottle>();
+        services.TryAddScoped<AccountService>();
         return services;
     }
 }

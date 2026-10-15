@@ -20,7 +20,7 @@ public sealed class PersistenceOptions
 
 public static class ServiceCollectionExtensions
 {
-    /// <summary>Registers the SQLite-backed <see cref="IConversationStore"/>.</summary>
+    /// <summary>Registers the SQLite-backed <see cref="IConversationStore"/> and <see cref="IUserStore"/>.</summary>
     public static IServiceCollection AddSqlitePersistence(
         this IServiceCollection services, IConfiguration configuration, string contentRootPath)
     {
@@ -29,6 +29,7 @@ public static class ServiceCollectionExtensions
 
         services.AddDbContext<LocalAiDbContext>(db => db.UseSqlite(connectionString));
         services.AddScoped<IConversationStore, SqliteConversationStore>();
+        services.AddScoped<IUserStore, SqliteUserStore>();
         return services;
     }
 

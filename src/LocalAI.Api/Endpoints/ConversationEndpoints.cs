@@ -1,3 +1,4 @@
+using LocalAI.Api.Auth;
 using LocalAI.Api.Contracts;
 using LocalAI.Api.Streaming;
 using LocalAI.Core.Services;
@@ -59,45 +60,46 @@ internal static class ConversationEndpoints
         .ProducesProblem(StatusCodes.Status503ServiceUnavailable);
 
     private static async Task<ConversationListResponse> ListAsync(
-        ConversationService conversations, CancellationToken cancellationToken, int? limit = null)
+        HttpContext context, ConversationService conversations, CancellationToken cancellationToken, int? limit = null)
     {
-        var items = await conversations.ListAsync(limit ?? DefaultListLimit, cancellationToken);
+        var items = await conversations.ListAsync(context.User.GetUserId(), limit ?? DefaultListLimit, cancellationToken);
         return new ConversationListResponse(items.Select(ConversationSummaryDto.From).ToArray());
     }
 
     private static async Task<Created<ConversationDto>> CreateAsync(
-        CreateConversationRequest? body, ConversationService conversations, CancellationToken cancellationToken)
+        CreateConversationRequest? body, HttpContext context, ConversationService conversations, CancellationToken cancellationToken)
     {
-        var conversation = await conversations.CreateAsync(body?.Title, cancellationToken);
+        var conversation = await conversations.CreateAsync(context.User.GetUserId(), body?.Title, cancellationToken);
         return TypedResults.Created($"/api/conversations/{conversation.Id}", ConversationDto.From(conversation));
     }
 
     private static async Task<ConversationDto> GetAsync(
-        Guid id, ConversationService conversations, CancellationToken cancellationToken) =>
-        ConversationDto.From(await conversations.GetAsync(id, cancellationToken));
+        Guid id, HttpContext context, ConversationService conversations, CancellationToken cancellationToken) =>
+        ConversationDto.From(await conversations.GetAsync(context.User.GetUserId(), id, cancellationToken));
 
     private static async Task<Results<NoContent, ValidationProblem>> RenameAsync(
-        Guid id, RenameConversationRequest body, ConversationService conversations, CancellationToken cancellationToken)
+        Guid id, RenameConversationRequest body, HttpContext context, ConversationService conversations, CancellationToken cancellationToken)
     {
         if (string.IsNullOrWhiteSpace(body.Title) || body.Title.Trim().Length > ConversationService.MaxTitleLength)
         {
             return Validation("title", $"Title must be 1–{ConversationService.MaxTitleLength} characters.");
         }
 
-        await conversations.RenameAsync(id, body.Title, cancellationToken);
+        await conversations.RenameAsync(context.User.GetUserId(), id, body.Title, cancellationToken);
         return TypedResults.NoContent();
     }
 
     private static async Task<NoContent> DeleteAsync(
-        Guid id, ConversationService conversations, CancellationToken cancellationToken)
+        Guid id, HttpContext context, ConversationService conversations, CancellationToken cancellationToken)
     {
-        await conversations.DeleteAsync(id, cancellationToken);
+        await conversations.DeleteAsync(context.User.GetUserId(), id, cancellationToken);
         return TypedResults.NoContent();
     }
 
     private static async Task<IResult> SendAsync(
         Guid id,
         SendMessageRequest body,
+        HttpContext context,
         ChatRequestValidator validator,
         ConversationService conversations,
         CancellationToken cancellationToken)
@@ -108,13 +110,14 @@ internal static class ConversationEndpoints
             return ValidationFailed(validation);
         }
 
-        var turn = await conversations.BeginTurnAsync(id, validation.Request!, cancellationToken);
+        var turn = await conversations.BeginTurnAsync(context.User.GetUserId(), id, validation.Request!, cancellationToken);
         return new ChatStreamResult(turn.Request.Model, ct => conversations.StreamTurnAsync(turn, ct), id, turn);
     }
 
     private static async Task<IResult> RegenerateAsync(
         Guid id,
         RegenerateRequest body,
+        HttpContext context,
         ChatRequestValidator validator,
         ConversationService conversations,
         CancellationToken cancellationToken)
@@ -126,7 +129,7 @@ internal static class ConversationEndpoints
         }
 
         var request = validation.Request!;
-        var turn = await conversations.BeginRegenerateAsync(id, request.Model, request.Options, cancellationToken);
+        var turn = await conversations.BeginRegenerateAsync(context.User.GetUserId(), id, request.Model, request.Options, cancellationToken);
         return new ChatStreamResult(turn.Request.Model, ct => conversations.StreamTurnAsync(turn, ct), id, turn);
     }
 

@@ -6,7 +6,7 @@ import type {
   StreamStartEvent,
 } from "../types/api";
 import { SseParser } from "../utils/sse-parser";
-import { API_BASE_URL, ApiError, isAbortError, networkError, toApiError } from "./http";
+import { API_BASE_URL, ApiError, CREDENTIALS, isAbortError, networkError, toApiError } from "./http";
 
 export interface StreamHandlers {
   onStart?: (event: StreamStartEvent) => void;
@@ -43,6 +43,7 @@ export async function streamSse(
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
       body: JSON.stringify(body),
+      credentials: CREDENTIALS,
       signal,
     });
   } catch (error) {

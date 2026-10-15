@@ -35,6 +35,24 @@ public static class ErrorCatalog
         _ => Internal,
     };
 
+    public static ApiError For(AuthException exception) => exception.Code switch
+    {
+        AuthErrorCode.InvalidCredentials => new(StatusCodes.Status401Unauthorized, "invalid_credentials", "Invalid credentials", false),
+        AuthErrorCode.TooManyAttempts => new(StatusCodes.Status429TooManyRequests, "too_many_attempts", "Too many attempts", true),
+        AuthErrorCode.SetupCompleted => new(StatusCodes.Status409Conflict, "setup_completed", "Setup already completed", false),
+        AuthErrorCode.UsernameTaken => new(StatusCodes.Status409Conflict, "username_taken", "Username taken", false),
+        AuthErrorCode.UserNotFound => new(StatusCodes.Status404NotFound, "user_not_found", "User not found", false),
+        AuthErrorCode.LastAdmin => new(StatusCodes.Status409Conflict, "last_admin", "Last administrator", false),
+        AuthErrorCode.CannotModifySelf => new(StatusCodes.Status409Conflict, "cannot_modify_self", "Cannot modify own account", false),
+        _ => Internal,
+    };
+
+    public static readonly ApiError Unauthenticated =
+        new(StatusCodes.Status401Unauthorized, "unauthenticated", "Sign-in required", false);
+
+    public static readonly ApiError Forbidden =
+        new(StatusCodes.Status403Forbidden, "forbidden", "Forbidden", false);
+
     public static readonly ApiError Internal =
         new(StatusCodes.Status500InternalServerError, "internal_error", "Internal server error", false);
 

@@ -21,7 +21,7 @@ public class StatusEndpointTests : IDisposable
     public async Task Health_reports_liveness_without_touching_the_provider()
     {
         _factory.Provider.Health = new ProviderHealth(false, null, TimeSpan.Zero, "down");
-        using var client = _factory.CreateClient();
+        using var client = _factory.CreateClient(); // anonymous: probes must not need a session
 
         var response = await client.GetAsync("/api/health");
 
@@ -34,7 +34,7 @@ public class StatusEndpointTests : IDisposable
     [Fact]
     public async Task Readiness_is_ready_when_provider_and_model_are_available()
     {
-        using var client = _factory.CreateClient();
+        using var client = _factory.CreateClient(); // anonymous: probes must not need a session
 
         var response = await client.GetAsync("/api/health/ready");
 
@@ -48,7 +48,7 @@ public class StatusEndpointTests : IDisposable
     public async Task Readiness_is_degraded_when_no_model_is_installed()
     {
         _factory.Provider.Models.Clear();
-        using var client = _factory.CreateClient();
+        using var client = _factory.CreateClient(); // anonymous: probes must not need a session
 
         var response = await client.GetAsync("/api/health/ready");
 
@@ -62,7 +62,7 @@ public class StatusEndpointTests : IDisposable
     public async Task Readiness_is_unavailable_when_provider_is_unreachable()
     {
         _factory.Provider.Health = new ProviderHealth(false, null, TimeSpan.Zero, "The local inference service is not reachable.");
-        using var client = _factory.CreateClient();
+        using var client = _factory.CreateClient(); // anonymous: probes must not need a session
 
         var response = await client.GetAsync("/api/health/ready");
 
@@ -76,7 +76,7 @@ public class StatusEndpointTests : IDisposable
     public async Task Models_endpoint_returns_installed_models_with_availability_flags()
     {
         _factory.Provider.Models.Add(FakeChatProvider.Model("big:cloud", remote: true));
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
 
         var body = await client.GetFromJsonAsync<JsonElement>("/api/models?refresh=true");
 
@@ -95,7 +95,7 @@ public class StatusEndpointTests : IDisposable
     public async Task Models_endpoint_returns_empty_list_when_nothing_is_installed()
     {
         _factory.Provider.Models.Clear();
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
 
         var body = await client.GetFromJsonAsync<JsonElement>("/api/models");
 
@@ -106,7 +106,7 @@ public class StatusEndpointTests : IDisposable
     public async Task Models_endpoint_returns_503_problem_when_provider_is_down()
     {
         _factory.Provider.ListModelsException = InferenceException.Unavailable();
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
 
         var response = await client.GetAsync("/api/models");
 
@@ -122,7 +122,7 @@ public class StatusEndpointTests : IDisposable
     public async Task Unexpected_errors_return_generic_500_problem_without_internals()
     {
         _factory.Provider.ListModelsException = new InvalidOperationException("stack secret");
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
 
         var response = await client.GetAsync("/api/models");
 
@@ -136,7 +136,7 @@ public class StatusEndpointTests : IDisposable
     [Fact]
     public async Task Model_status_distinguishes_connectivity_from_inference()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
 
         var before = await client.GetFromJsonAsync<JsonElement>("/api/models/status");
         Assert.True(before.GetProperty("provider").GetProperty("reachable").GetBoolean());
@@ -152,7 +152,7 @@ public class StatusEndpointTests : IDisposable
     [Fact]
     public async Task System_overview_reports_real_counters_and_limits()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
         (await client.PostAsJsonAsync("/api/chat", Sse.ChatBody())).EnsureSuccessStatusCode();
         await client.PostAsJsonAsync("/api/chat", Sse.ChatBody(model: "ghost:1b"));
 
@@ -172,7 +172,7 @@ public class StatusEndpointTests : IDisposable
     [Fact]
     public async Task Swagger_is_disabled_unless_configured()
     {
-        using var client = _factory.CreateClient();
+        using var client = await _factory.CreateAuthenticatedClientAsync();
 
         var response = await client.GetAsync("/swagger/v1/swagger.json");
 

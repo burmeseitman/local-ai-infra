@@ -45,11 +45,16 @@ That's fine for local development. The authoritative build and test environment 
 
 Conversation history is stored in `src/LocalAI.Api/data/localai.db` (git-ignored). It's created and migrated automatically at startup. Delete the file to start fresh, or set `Persistence__ConnectionString`.
 
-Smoke test:
+**First run:** open the dashboard, or call `POST /api/auth/setup`, to create the administrator. Session-signing keys are stored in `src/LocalAI.Api/data/keys` (git-ignored). To start completely fresh locally, stop the API and delete `src/LocalAI.Api/data/`.
+
+Smoke test (`-c`/`-b` keep the session cookie):
 
 ```bash
 curl -s localhost:5080/api/health/ready | jq
-curl -N -X POST localhost:5080/api/chat/stream -H 'Content-Type: application/json' \
+read -rs -p "Admin password: " PW; echo
+curl -s -c jar -X POST localhost:5080/api/auth/login -H 'Content-Type: application/json' \
+  -d "{\"username\":\"admin\",\"password\":\"$PW\"}"
+curl -N -b jar -X POST localhost:5080/api/chat/stream -H 'Content-Type: application/json' \
   -d '{"model":"qwen2.5:0.5b","messages":[{"role":"user","content":"Say hi"}]}'
 ```
 
@@ -84,6 +89,8 @@ Code layout (`src/`):
 | `api/` | `fetch` wrappers, `ApiError`, and the SSE chat client (`chat-stream.ts`) |
 | `features/chat/` | Reducers (`chat-state.ts`), `useConversation` (server-backed chat), message list and item, composer |
 | `features/conversations/` | History panel: list, select, inline rename, two-step delete |
+| `features/auth/` | `useAuth` (session state; any `unauthenticated` response signs the UI out) and the setup/sign-in screen |
+| `pages/` | Also `users-page` (admin) and `account-page` (change password) |
 | `features/models/` | Selection logic, selector, install help |
 | `features/system/` | Health-layer derivation and the sidebar status |
 | `hooks/` | `useAsyncResource` (load + poll + keep last good data) and the hash router |
@@ -110,7 +117,7 @@ docker compose down          # keeps models; add -v to delete the ollama-models 
 | One frontend test | `npx vitest run -t "stops a generation"` |
 | Frontend in Docker | `docker build -f infrastructure/docker/web.Dockerfile --target test .` |
 
-`tests/LocalAI.Persistence.Tests` runs the store against an in-memory SQLite database with the real migrations. `tests/LocalAI.Api.Tests` hosts the real pipeline (with a temporary SQLite file per test class) through `WebApplicationFactory<Program>`, with `IChatProvider` replaced by `tests/Shared/FakeChatProvider.cs`. `tests/LocalAI.Providers.Tests` drives `OllamaClient` through a stub `HttpMessageHandler` and a `SegmentedStream` that splits responses at arbitrary byte boundaries. No test needs Ollama or a model.
+`tests/LocalAI.Persistence.Tests` runs the store against an in-memory SQLite database with the real migrations. `tests/LocalAI.Api.Tests` hosts the real pipeline (with a temporary SQLite file per test class) through `WebApplicationFactory<Program>`, with `IChatProvider` replaced by `tests/Shared/FakeChatProvider.cs`. `ApiFactory.CreateAuthenticatedClientAsync()` runs first-run setup and returns a client that holds the session cookie, and anonymous clients test the 401 paths. `tests/LocalAI.Providers.Tests` drives `OllamaClient` through a stub `HttpMessageHandler` and a `SegmentedStream` that splits responses at arbitrary byte boundaries. No test needs Ollama or a model.
 
 > With only the .NET 10 runtime, `LocalAI.Api.Tests` fails with `ResponseBodyPipeWriter does not implement PipeWriter.UnflushedBytes`. That's an incompatibility between the .NET 8 `TestHost` package and the .NET 10 System.Text.Json, not an application bug. Install the .NET 8 runtime or use the Docker test stage. Core, Providers and Persistence tests run fine with roll-forward.
 

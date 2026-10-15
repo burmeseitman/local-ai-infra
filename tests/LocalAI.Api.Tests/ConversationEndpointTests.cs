@@ -16,7 +16,7 @@ public class ConversationEndpointTests : IDisposable
 
     public ConversationEndpointTests()
     {
-        _client = _factory.CreateClient();
+        _client = _factory.CreateAuthenticatedClientAsync().GetAwaiter().GetResult();
     }
 
     public void Dispose()
@@ -240,20 +240,22 @@ public class ConversationEndpointTests : IDisposable
     {
         var id = await CreateConversation("Persistent");
 
-        using var restarted = new ApiFactoryOnSameDatabase(_factory.DatabasePath);
+        using var restarted = new ApiFactoryOnSameDatabase(_factory.DatabasePath, _factory.KeysDirectory);
         using var client = restarted.CreateClient();
+        (await client.PostAsJsonAsync("/api/auth/login", new { username = ApiFactory.AdminUsername, password = ApiFactory.AdminPassword })).EnsureSuccessStatusCode();
 
         var conversation = await client.GetFromJsonAsync<JsonElement>($"/api/conversations/{id}");
         Assert.Equal("Persistent", conversation.GetProperty("title").GetString());
     }
 
-    private sealed class ApiFactoryOnSameDatabase(string path) : WebApplicationFactory<Program>
+    private sealed class ApiFactoryOnSameDatabase(string path, string keys) : WebApplicationFactory<Program>
     {
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
             builder.UseEnvironment("Testing");
             builder.UseSetting("Ollama:BaseUrl", "http://ollama.invalid:11434");
             builder.UseSetting("Persistence:ConnectionString", $"Data Source={path}");
+            builder.UseSetting("Session:KeysDirectory", keys);
         }
     }
 }

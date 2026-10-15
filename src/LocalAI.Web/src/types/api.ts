@@ -168,3 +168,18 @@ export interface Conversation {
   updatedAt: string;
   messages: StoredMessage[];
 }
+
+export type UserRole = "admin" | "user";
+
+export interface AuthUser {
+  id: string;
+  username: string;
+  role: UserRole;
+  createdAt: string;
+  lastLoginAt: string | null;
+}
+
+export interface AuthState {
+  setupRequired: boolean;
+  user: AuthUser | null;
+}

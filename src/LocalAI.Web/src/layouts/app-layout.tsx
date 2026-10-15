@@ -1,17 +1,21 @@
 import type { ReactNode } from "react";
-import { ActivityIcon, ChatIcon, CubeIcon, LockIcon } from "../components/icons";
+import { ActivityIcon, ChatIcon, CubeIcon, LockIcon, UserIcon, UsersIcon } from "../components/icons";
 import { ConnectionSummary } from "../features/system/connection-summary";
 import type { PlatformStatus } from "../features/system/platform-status";
 import type { Route } from "../hooks/use-hash-route";
+import type { AuthUser } from "../types/api";
 
-const NAV: { route: Route; label: string; icon: ReactNode }[] = [
+const NAV: { route: Route; label: string; icon: ReactNode; adminOnly?: boolean }[] = [
   { route: "chat", label: "Chat", icon: <ChatIcon /> },
   { route: "models", label: "Models", icon: <CubeIcon /> },
   { route: "system", label: "System", icon: <ActivityIcon /> },
+  { route: "users", label: "Users", icon: <UsersIcon />, adminOnly: true },
 ];
 
 interface AppLayoutProps {
   route: Route;
+  user: AuthUser;
+  onSignOut: () => Promise<void>;
   /** Link for the Chat item; keeps the open conversation when returning from other pages. */
   chatHref: string;
   status: PlatformStatus;
@@ -19,7 +23,7 @@ interface AppLayoutProps {
   children: ReactNode;
 }
 
-export function AppLayout({ route, chatHref, status, generating, children }: AppLayoutProps) {
+export function AppLayout({ route, user, onSignOut, chatHref, status, generating, children }: AppLayoutProps) {
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -32,7 +36,7 @@ export function AppLayout({ route, chatHref, status, generating, children }: App
         </div>
 
         <nav className="nav" aria-label="Main">
-          {NAV.map((item) => (
+          {NAV.filter((item) => !item.adminOnly || user.role === "admin").map((item) => (
             <a
               key={item.route}
               href={item.route === "chat" ? chatHref : `#/${item.route}`}
@@ -46,6 +50,17 @@ export function AppLayout({ route, chatHref, status, generating, children }: App
         </nav>
 
         <ConnectionSummary status={status} generating={generating} />
+
+        <section className="account" aria-label="Signed-in user">
+          <a href="#/account" className={`account__user${route === "account" ? " is-active" : ""}`} title="Account settings">
+            <UserIcon />
+            <span className="account__name">{user.username}</span>
+            {user.role === "admin" && <span className="badge">admin</span>}
+          </a>
+          <button type="button" className="btn btn--ghost btn--sm" onClick={() => void onSignOut()}>
+            Sign out
+          </button>
+        </section>
 
         <p className="local-badge">
           <LockIcon />

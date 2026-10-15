@@ -2,6 +2,55 @@
 
 Base path: `/api`. JSON uses camelCase. Timestamps are ISO 8601 UTC. Durations are milliseconds unless the name says otherwise. When `Api__EnableSwagger=true` (the default in Development), OpenAPI is served at `/swagger/v1/swagger.json` with a UI at `/swagger`.
 
+## Authentication
+
+The API uses **cookie sessions**. The cookie (`localai.session`) is HttpOnly and `SameSite=Strict`, lasts 7 days, and renews while in use.
+
+- **Anonymous endpoints:** `GET /api/health`, `GET /api/health/ready`, `GET /api/auth/state`, `POST /api/auth/setup`, `POST /api/auth/login`, and `POST /api/auth/logout`.
+- **Everything else** requires a session. Without one the API answers `401` with `code: "unauthenticated"`.
+- **User administration** (`/api/users`) also requires the admin role, otherwise `403` with `code: "forbidden"`.
+- **Session re-validation:** every request checks the session against the account's *session version*. Deleting a user, resetting their password, changing their role, or changing your own password ends the affected sessions immediately. A password change keeps the session that made it.
+
+| Status | `code` | When |
+|---|---|---|
+| 400 | `validation_failed` | Username not 3–32 of `[A-Za-z0-9._-]`, password shorter than `Auth:MinPasswordLength` (10) or longer than 128 |
+| 401 | `unauthenticated` | No or expired session |
+| 401 | `invalid_credentials` | Wrong username or password. The message is the same for both, and so is the timing |
+| 403 | `forbidden` | Not an administrator |
+| 404 | `user_not_found` | Unknown user id |
+| 409 | `setup_completed` | `POST /api/auth/setup` after an account exists |
+| 409 | `username_taken` | Usernames are unique, ignoring case |
+| 409 | `last_admin` | Would remove or demote the only administrator |
+| 409 | `cannot_modify_self` | Deleting yourself or changing your own role |
+| 429 | `too_many_attempts` | Too many failed sign-ins for this username (default 5 within 5 minutes). A `Retry-After` header gives the wait in seconds |
+
+### `GET /api/auth/state`
+
+```json
+{ "setupRequired": false, "user": { "id": "…", "username": "admin", "role": "admin", "createdAt": "…", "lastLoginAt": "…" } }
+```
+
+`user` is `null` when not signed in. `setupRequired` is `true` only while no account exists.
+
+### `POST /api/auth/setup` and `POST /api/auth/login`
+
+Body: `{ "username": "admin", "password": "…" }`. On success, returns the user object and sets the session cookie. Setup creates an **administrator**, and only works once. Conversations created before accounts existed are assigned to that administrator.
+
+### `POST /api/auth/logout` → `204`
+
+### `POST /api/auth/password` → `204`
+
+Body: `{ "currentPassword": "…", "newPassword": "…" }`. Validation errors use the key `newPassword`.
+
+### `/api/users` (admin only)
+
+| Method | Path | Body | Result |
+|---|---|---|---|
+| GET | `/api/users` | — | `{ "users": [UserDto…] }`, sorted by username. Hashes are never returned |
+| POST | `/api/users` | `{ "username", "password", "role": "user" \| "admin" }` | `201` + `UserDto` |
+| PATCH | `/api/users/{id}` | `{ "role"?: "user" \| "admin", "password"?: "…" }` | `204`. Signs that user out |
+| DELETE | `/api/users/{id}` | — | `204`. **Deletes their conversations too** |
+
 ## Errors (non-streaming)
 
 Every non-2xx response is RFC 7807 Problem Details (`application/problem+json`) with two extension members:
@@ -232,7 +281,7 @@ A snapshot for the dashboard (example values below are illustrative). Every numb
 
 ## Conversations (Phase 2)
 
-History is stored on the server in SQLite. Clients send **only the new message**. The API loads the stored history, chooses the context window, persists the user message, streams the reply, and persists the reply when the stream ends:
+Conversations belong to the signed-in user. Another user's conversation id behaves exactly like a missing one (`404 conversation_not_found`), even while it is busy. History is stored on the server in SQLite. Clients send **only the new message**. The API loads the stored history, chooses the context window, persists the user message, streams the reply, and persists the reply when the stream ends:
 
 - `complete`: with stats.
 - `stopped`: the client disconnected or pressed Stop. Partial text is kept.
@@ -306,10 +355,11 @@ Body: `{ "model": "qwen2.5:0.5b", "temperature": null, "maxTokens": null }`.
 Deletes the last assistant reply, if the last message is one, and streams a new reply to the last user message. This is what the UI's **Retry** button calls. The SSE format is the same as above.
 
 ```bash
-ID=$(curl -s -X POST localhost:5080/api/conversations -H 'Content-Type: application/json' -d '{}' | jq -r .id)
-curl -N -X POST localhost:5080/api/conversations/$ID/messages/stream \
+# After signing in with: curl -c jar -X POST localhost:5080/api/auth/login ...
+ID=$(curl -s -b jar -X POST localhost:5080/api/conversations -H 'Content-Type: application/json' -d '{}' | jq -r .id)
+curl -N -b jar -X POST localhost:5080/api/conversations/$ID/messages/stream \
   -H 'Content-Type: application/json' -d '{"model":"qwen2.5:0.5b","content":"Hello"}'
-curl -s localhost:5080/api/conversations/$ID | jq
+curl -s -b jar localhost:5080/api/conversations/$ID | jq
 ```
 
 The stateless `/api/chat` and `/api/chat/stream` endpoints remain available for integrations that manage their own history.
