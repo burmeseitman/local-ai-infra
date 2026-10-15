@@ -1,4 +1,4 @@
-# Local AI Infrastructure — Phase 1
+# Local AI Infrastructure
 
 [![CI](https://github.com/burmeseitman/local-ai-infra/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/burmeseitman/local-ai-infra/actions/workflows/ci.yml)
 
@@ -11,6 +11,8 @@ It has three parts:
 - **Ollama:** inference, running entirely on your machine.
 
 No cloud AI service, API key, or paid dependency is required.
+
+**Status:** Phase 1 (platform) is complete. Phase 2 has started: server-side **conversation history** (SQLite) is done. Authentication, model admin, and monitoring are next (see [Roadmap](#roadmap)).
 
 ```
 Browser ──► React dashboard (nginx) ──/api──► ASP.NET Core API ──► IChatProvider ──► Ollama ──► local model
@@ -38,6 +40,7 @@ Browser ──► React dashboard (nginx) ──/api──► ASP.NET Core API �
 
 What Phase 1 delivers:
 
+- **Saved conversations (Phase 2).** History lives in SQLite on the server. The browser sends only the new message, and the API loads the context, stores both sides of the turn, and keeps the reply whether it completes, is stopped, or fails. You can list, open (`#/chat/<id>`), rename, and delete conversations, and history survives reloads and restarts.
 - **Chat with true end-to-end streaming.** Ollama sends NDJSON, the API turns it into Server-Sent Events, nginx passes it through unbuffered, and React renders it incrementally. You can stop, retry, start a new conversation, and copy responses. Markdown is rendered safely.
 - **Model management.** Lists the models actually installed in Ollama (size, tag, family, parameters, quantization). Lets you select one, refresh the list, and see an explicit empty state with download instructions. Ollama "cloud" models are detected and blocked by default.
 - **System status that separates four layers:**
@@ -63,9 +66,11 @@ flowchart LR
     end
     subgraph api["api container (ASP.NET Core 8)"]
         Endpoints[Minimal API endpoints<br/>validation · Problem Details · SSE]
-        Core["LocalAI.Core<br/>ChatService · ModelCatalog · metrics"]
+        Core["LocalAI.Core<br/>ChatService · ConversationService · ModelCatalog · metrics"]
         Provider["LocalAI.Providers<br/>OllamaProvider : IChatProvider"]
+        Store["LocalAI.Persistence<br/>SqliteConversationStore : IConversationStore"]
     end
+    DB[("SQLite<br/>api-data volume")]
     subgraph ollama["ollama container"]
         Ollama[Ollama HTTP API]
         Model[(Local model<br/>ollama-models volume)]
@@ -74,6 +79,7 @@ flowchart LR
     UI -- "GET /, assets" --> Static
     UI -- "fetch /api/* (SSE for chat)" --> Proxy
     Proxy --> Endpoints --> Core --> Provider
+    Core --> Store --> DB
     Provider -- "HTTP /api/chat (NDJSON stream)" --> Ollama --> Model
 ```
 
@@ -83,6 +89,7 @@ The browser never talks to Ollama. All inference goes through the API, which own
 
 | Layer | Technology |
 |---|---|
+| Persistence | SQLite via EF Core 8.0 (`Microsoft.EntityFrameworkCore.Sqlite`), code-first migrations, WAL mode |
 | Backend | .NET 8 (LTS), ASP.NET Core minimal APIs, C# 12 with nullable reference types, `IHttpClientFactory`, options validation, built-in rate limiting, Swashbuckle 6.9 (Swagger) |
 | Tests (backend) | xUnit 2.9, `Microsoft.AspNetCore.Mvc.Testing` 8.0 |
 | Frontend | React 19.3, TypeScript 6.0 (strict), Vite 8.3, `react-markdown` 10 + `remark-gfm` |
@@ -111,17 +118,20 @@ A GPU is **not** required. Small models run on CPU.
 ├── .env.example                     # every configurable value, with safe defaults
 ├── Directory.Build.props            # net8.0, nullable, warnings-as-errors, analyzers
 ├── Directory.Packages.props         # pinned NuGet versions
+├── dotnet-tools.json                # pinned dotnet-ef 8.0.11 (migrations)
 ├── LocalAI.sln
 ├── src/
 │   ├── LocalAI.Core/                # provider-agnostic domain
 │   │   ├── Interfaces/IChatProvider.cs
 │   │   ├── Models/                  # chat + model records
 │   │   ├── Exceptions/InferenceException.cs
-│   │   └── Services/                # ChatService, ModelCatalog, ChatRequestValidator,
-│   │                                # ProviderStatusService, InferenceMetrics, ChatOptions
+│   │   └── Services/                # ChatService, ConversationService, HistoryWindow,
+│   │                                # ModelCatalog, ChatRequestValidator, ProviderStatusService,
+│   │                                # InferenceMetrics, ConversationLocks, ChatOptions
 │   ├── LocalAI.Providers/
 │   │   └── Ollama/                  # OllamaClient, OllamaProvider, OllamaOptions,
 │   │                                # OllamaModels (wire DTOs), NdjsonLineReader
+│   ├── LocalAI.Persistence/         # EF Core DbContext, SqliteConversationStore, Migrations/
 │   ├── LocalAI.Api/
 │   │   ├── Endpoints/               # Chat + status endpoints
 │   │   ├── Contracts/               # request/response/SSE payload records
@@ -130,12 +140,13 @@ A GPU is **not** required. Small models run on CPU.
 │   │   ├── Configuration/           # ApiOptions + validation
 │   │   └── Program.cs
 │   └── LocalAI.Web/                 # React + Vite dashboard
-│       └── src/{api,components,features/{chat,models,system},hooks,layouts,pages,types,utils,styles,test}
+│       └── src/{api,components,features/{chat,conversations,models,system},hooks,layouts,pages,types,utils,styles,test}
 ├── tests/
 │   ├── LocalAI.Core.Tests/          # validation, model catalog, chat service, cancellation
 │   ├── LocalAI.Providers.Tests/     # NDJSON framing, malformed data, timeouts, error mapping
+│   ├── LocalAI.Persistence.Tests/   # real SQLite + migrations: ordering, cascade, round-trips
 │   ├── LocalAI.Api.Tests/           # HTTP + SSE integration tests with a fake provider
-│   └── Shared/FakeChatProvider.cs
+│   └── Shared/                      # FakeChatProvider, InMemoryConversationStore
 ├── infrastructure/
 │   ├── docker/                      # api.Dockerfile, web.Dockerfile, nginx.conf
 │   └── compose/                     # optional GPU and Ollama-port overlays
@@ -175,7 +186,15 @@ Startup order is `ollama` (healthy) → `api` (healthy) → `web`. Compose order
 | `api` | `127.0.0.1:${API_PORT:-5080}` | For curl/Swagger. Non-root, read-only filesystem |
 | `ollama` | not published | Reachable only from `api` on the `backend` network |
 
-Models live in the named volume `ollama-models` and survive `docker compose down`. Use `docker compose down -v` to delete them.
+Models live in the named volume `ollama-models`, and conversations in `api-data` (SQLite at `/app/data/localai.db`). Both survive `docker compose down`. **`docker compose down -v` deletes them.** The API applies database migrations automatically at startup.
+
+Back up conversations. Stop the API briefly so the SQLite file and its WAL are consistent:
+
+```bash
+docker compose stop api
+docker run --rm -v local-ai-infrastructure_api-data:/data:ro alpine tar czf - -C /data . > localai-data-backup.tgz
+docker compose start api
+```
 
 **GPU (optional, NVIDIA on Linux/WSL2 with the NVIDIA Container Toolkit):**
 
@@ -225,6 +244,7 @@ Configuration uses standard ASP.NET Core sources: `appsettings.json`, then `apps
 | `Chat__MaxTokensLimit` | `4096` | Upper bound for client-requested `maxTokens` |
 | `Chat__AllowRemoteModels` | `false` | Allow Ollama "cloud" models that run on a third-party host |
 | `Chat__ModelListCacheDuration` | `00:00:05` | Model list cache |
+| `Persistence__ConnectionString` | `Data Source=data/localai.db` (compose: `/app/data/localai.db`) | SQLite file; relative paths resolve against the API content root |
 | `Api__CorsAllowedOrigins` | `[]` | Explicit origins only; wildcards rejected. Not needed with the proxy |
 | `Api__MaxRequestBodyBytes` | `262144` | Request body limit (HTTP 413 above it) |
 | `Api__MaxConcurrentGenerations` | `2` | Concurrent chats; excess gets HTTP 429 |
@@ -246,6 +266,11 @@ Compose maps the friendlier names in [.env.example](.env.example) (for example `
 | POST | `/api/chat/stream` | Streams a reply as SSE: `start`, `delta`*, then `done` or `error` |
 | POST | `/api/chat` | Same request, buffered JSON response |
 | GET | `/api/system/overview` | API, provider, model, and inference statistics snapshot |
+| GET | `/api/conversations` | Saved conversations, most recently updated first |
+| POST | `/api/conversations` | Create a conversation |
+| GET / PATCH / DELETE | `/api/conversations/{id}` | Read with messages / rename / delete |
+| POST | `/api/conversations/{id}/messages/stream` | Send **only the new message**; SSE reply; both sides stored |
+| POST | `/api/conversations/{id}/regenerate/stream` | Replace the last reply with a new streamed generation |
 
 Full contracts, the SSE event schema, and error codes are in [docs/api.md](docs/api.md).
 
@@ -259,15 +284,15 @@ curl -N -X POST http://127.0.0.1:5080/api/chat/stream \
 
 | Suite | Command | Count |
 |---|---|---|
-| Backend, all (authoritative, real .NET 8 SDK in Docker) | `docker build -f infrastructure/docker/api.Dockerfile --target test .` | 100 |
-| Backend, local | `dotnet test LocalAI.sln` (needs the .NET 8 runtime; see below) | 100 |
-| Frontend | `cd src/LocalAI.Web && npm test` | 21 |
+| Backend, all (authoritative, real .NET 8 SDK in Docker) | `docker build -f infrastructure/docker/api.Dockerfile --target test .` | 138 |
+| Backend, local | `dotnet test LocalAI.sln` (needs the .NET 8 runtime; see below) | 138 |
+| Frontend | `cd src/LocalAI.Web && npm test` | 27 |
 | Frontend lint / types | `npm run lint && npm run typecheck` | — |
-| Frontend, in Docker | `docker build -f infrastructure/docker/web.Dockerfile --target test .` | 21 |
+| Frontend, in Docker | `docker build -f infrastructure/docker/web.Dockerfile --target test .` | 27 |
 
-Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a GPU, or a downloaded model.
+Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a GPU, or a downloaded model. Persistence tests use a real in-memory SQLite database with the real migrations, and API tests use a temporary SQLite file per test class.
 
-> **Machines with only a newer .NET SDK/runtime.** Test projects use `RollForward=Major`, so `Core` and `Providers` tests run on a newer runtime. The `Api` integration tests do **not**: the .NET 8 `TestHost` package is incompatible with the .NET 10 runtime's System.Text.Json (`ResponseBodyPipeWriter does not implement UnflushedBytes`). Install the .NET 8 runtime or use the Docker test stage above.
+> **Machines with only a newer .NET SDK/runtime.** Test projects use `RollForward=Major`, so `Core`, `Providers`, and `Persistence` tests run on a newer runtime. The `Api` integration tests do **not**: the .NET 8 `TestHost` package is incompatible with the .NET 10 runtime's System.Text.Json (`ResponseBodyPipeWriter does not implement UnflushedBytes`). Install the .NET 8 runtime or use the Docker test stage above.
 
 ### Continuous integration
 
@@ -291,14 +316,20 @@ Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a G
 | Cloud model listed as "Remote · disabled" | Intentional. Set `Chat__AllowRemoteModels=true` only if you accept third-party inference |
 | `ports are not available ... 8080` | Another process uses the port; set `WEB_PORT` (or `API_PORT`) |
 | API exits at startup with `OptionsValidationException` | A configuration value is invalid; the message names the setting |
+| HTTP 409 `conversation_busy` | A reply is already being generated in that conversation (one at a time per conversation); wait or press Stop |
+| "Conversation not found" after a reset | The `api-data` volume was removed (`down -v`), or the link points to a deleted conversation |
+| API fails at startup with a SQLite error | The data directory is not writable; in Docker, keep the `api-data` volume mounted at `/app/data` |
 | Streaming arrives all at once behind another proxy | That proxy buffers; disable response buffering for `/api/chat/stream` (the API already sends `X-Accel-Buffering: no`) |
 
 Logs: `docker compose logs -f api` (prompts and responses are never logged; only model, sizes, durations, and error codes).
 
 ## Known limitations
 
-- Conversations live only in browser memory. Reloading the tab clears them (persistence is Phase 2).
-- No authentication. The platform is meant for a single user on localhost (see [Security notes](#security-notes)).
+- No authentication. Anyone who can reach the dashboard can read, rename, and delete **all** saved conversations. The platform is meant for a single user on localhost (see [Security notes](#security-notes)).
+- Conversations are stored unencrypted in SQLite on the API host.
+- Only the newest messages that fit `Chat__MaxMessages` and `Chat__MaxConversationLength` are sent to the model. Older turns stay stored but leave the model's context. Limits are in characters, not model tokens.
+- One generation per conversation at a time; the lock is in-process, so a single API instance is assumed (also required by SQLite).
+- Switching to another conversation stops a generation that is still running (its partial reply is saved as stopped).
 - Request counters are in-memory and reset when the API restarts. Only the single API instance is counted.
 - "Thinking" output from reasoning models (Ollama's `message.thinking` field) is not displayed; only answer content is streamed.
 - On macOS, containerized Ollama is CPU-only.
@@ -316,7 +347,7 @@ Implemented defaults:
 - Errors return Problem Details with safe messages. Upstream errors and stack traces go only to the server log.
 - CORS is off by default; explicit origins only, and wildcards are rejected.
 - Model output is untrusted. Raw HTML is not rendered, `javascript:` links are stripped, and **images in model output are not loaded**, which prevents data exfiltration through crafted image URLs. nginx sends a strict Content Security Policy.
-- Prompts and responses are not logged.
+- Prompts and responses are not logged, including SQL parameters (EF Core sensitive-data logging stays off).
 
 **Exposing it beyond localhost is not safe as-is.** Before binding to `0.0.0.0` or another network, add all of the following:
 
@@ -329,6 +360,10 @@ Never publish Ollama's port: it has no authentication. Running in Docker does no
 
 ## Roadmap
 
-- **Phase 2 — persistence and operability:** conversation storage (SQLite/PostgreSQL), authentication for single and small-team use, OpenTelemetry metrics and structured logs, Prometheus/Grafana dashboards, and model pull/delete through an authenticated admin API with an audit log.
+- **Phase 2 — persistence and operability:**
+  - ✅ Conversation storage (SQLite, server-side history, regenerate, rename/delete).
+  - ⏭ Local-account authentication with admin/user roles and per-user conversations.
+  - ⏭ Model pull/delete through an authenticated admin API with progress and an audit log.
+  - ⏭ OpenTelemetry metrics and structured logs with Prometheus/Grafana dashboards.
 - **Phase 3 — retrieval and multiple providers:** a RAG pipeline with a vector store (e.g. Qdrant/pgvector), document ingestion, and additional `IChatProvider` implementations (llama.cpp server, vLLM, OpenAI-compatible endpoints) with per-model routing.
 - **Phase 4 — scale and performance:** GPU scheduling and multiple inference nodes, Kubernetes deployment, request queuing and autoscaling, load and latency benchmarking, and evaluation harnesses.

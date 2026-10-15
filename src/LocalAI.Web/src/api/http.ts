@@ -79,3 +79,22 @@ export async function getJson<T>(path: string, signal?: AbortSignal): Promise<T>
   }
   return (await response.json()) as T;
 }
+
+/** JSON request with a body (POST/PATCH/DELETE). Returns null for 204 No Content. */
+export async function sendJson<T>(method: string, path: string, body?: unknown): Promise<T | null> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: body === undefined ? { Accept: "application/json" } : { "Content-Type": "application/json", Accept: "application/json" },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    });
+  } catch {
+    throw networkError();
+  }
+
+  if (!response.ok) {
+    throw await toApiError(response);
+  }
+  return response.status === 204 ? null : ((await response.json()) as T);
+}

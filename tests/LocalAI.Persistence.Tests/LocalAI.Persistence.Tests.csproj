@@ -1,0 +1,5 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <ItemGroup>
+    <ProjectReference Include="../../src/LocalAI.Persistence/LocalAI.Persistence.csproj" />
+  </ItemGroup>
+</Project>

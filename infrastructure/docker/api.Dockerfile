@@ -11,10 +11,12 @@ WORKDIR /src
 COPY Directory.Build.props Directory.Packages.props LocalAI.sln ./
 COPY src/LocalAI.Core/LocalAI.Core.csproj src/LocalAI.Core/
 COPY src/LocalAI.Providers/LocalAI.Providers.csproj src/LocalAI.Providers/
+COPY src/LocalAI.Persistence/LocalAI.Persistence.csproj src/LocalAI.Persistence/
 COPY src/LocalAI.Api/LocalAI.Api.csproj src/LocalAI.Api/
 COPY tests/Directory.Build.props tests/
 COPY tests/LocalAI.Core.Tests/LocalAI.Core.Tests.csproj tests/LocalAI.Core.Tests/
 COPY tests/LocalAI.Providers.Tests/LocalAI.Providers.Tests.csproj tests/LocalAI.Providers.Tests/
+COPY tests/LocalAI.Persistence.Tests/LocalAI.Persistence.Tests.csproj tests/LocalAI.Persistence.Tests/
 COPY tests/LocalAI.Api.Tests/LocalAI.Api.Tests.csproj tests/LocalAI.Api.Tests/
 RUN dotnet restore LocalAI.sln
 
@@ -33,6 +35,10 @@ ENV ASPNETCORE_HTTP_PORTS=8080 \
     DOTNET_NOLOGO=true \
     DOTNET_CLI_TELEMETRY_OPTOUT=true
 COPY --from=publish /app/publish .
+# SQLite database directory (mount a volume here). Owned by the non-root app user so the
+# container can keep a read-only root filesystem.
+RUN mkdir -p /app/data && chown $APP_UID /app/data
+VOLUME /app/data
 # Non-root user provided by the official .NET 8 images.
 USER $APP_UID
 EXPOSE 8080

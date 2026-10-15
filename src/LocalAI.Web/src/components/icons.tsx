@@ -83,3 +83,20 @@ export const LockIcon = (p: IconProps) => (
     <path d="M7 11V7a5 5 0 0 1 10 0v4" />
   </Icon>
 );
+export const PencilIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M12 20h9" />
+    <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z" />
+  </Icon>
+);
+export const TrashIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6" />
+  </Icon>
+);
+export const HistoryIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M3 12a9 9 0 1 0 3-6.7L3 8" />
+    <path d="M3 3v5h5M12 7v5l3 3" />
+  </Icon>
+);

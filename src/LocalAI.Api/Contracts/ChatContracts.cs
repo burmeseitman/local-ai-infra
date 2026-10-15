@@ -46,7 +46,8 @@ public sealed record CompletionStatsDto(
 
 // Server-Sent Event payloads for POST /api/chat/stream (see docs/api.md).
 
-public sealed record StreamStartEvent(string RequestId, string Model, DateTimeOffset CreatedAt);
+/// <summary><see cref="ConversationId"/> is set only for conversation streams.</summary>
+public sealed record StreamStartEvent(string RequestId, string Model, DateTimeOffset CreatedAt, Guid? ConversationId = null);
 
 public sealed record StreamDeltaEvent(string Content);
 

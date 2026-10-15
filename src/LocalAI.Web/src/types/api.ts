@@ -27,6 +27,7 @@ export interface StreamStartEvent {
   requestId: string;
   model: string;
   createdAt: string;
+  conversationId: string | null;
 }
 
 export interface StreamDeltaEvent {
@@ -135,4 +136,35 @@ export interface ProblemDetails {
   retryable?: boolean;
   traceId?: string;
   errors?: Record<string, string[]>;
+}
+
+export type MessageStatus = "complete" | "stopped" | "error";
+
+export interface StoredMessage {
+  id: string;
+  sequence: number;
+  role: ChatRole;
+  content: string;
+  status: MessageStatus;
+  model: string | null;
+  error: { code: string; message: string | null } | null;
+  stats: CompletionStats | null;
+  createdAt: string;
+}
+
+export interface ConversationSummary {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messageCount: number;
+  lastModel: string | null;
+}
+
+export interface Conversation {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: StoredMessage[];
 }

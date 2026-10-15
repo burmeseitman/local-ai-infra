@@ -3,7 +3,6 @@ using LocalAI.Api.Contracts;
 using LocalAI.Api.Middleware;
 using LocalAI.Core.Exceptions;
 using LocalAI.Core.Models;
-using LocalAI.Core.Services;
 using Microsoft.AspNetCore.Http.Features;
 using Microsoft.AspNetCore.Http.Json;
 using Microsoft.Extensions.Options;
@@ -15,11 +14,27 @@ namespace LocalAI.Api.Streaming;
 /// then exactly one terminal <c>done</c> or <c>error</c> event (unless the client disconnects).
 /// Each event is flushed immediately; nothing is buffered server-side.
 /// </summary>
-internal sealed class ChatStreamResult(ChatCompletionRequest request, ChatService chat) : IResult
+internal sealed class ChatStreamResult(
+    string model,
+    Func<CancellationToken, IAsyncEnumerable<ChatStreamChunk>> source,
+    Guid? conversationId = null,
+    IDisposable? owned = null) : IResult
 {
     public const string ContentType = "text/event-stream";
 
     public async Task ExecuteAsync(HttpContext httpContext)
+    {
+        try
+        {
+            await StreamAsync(httpContext);
+        }
+        finally
+        {
+            owned?.Dispose();
+        }
+    }
+
+    private async Task StreamAsync(HttpContext httpContext)
     {
         var logger = httpContext.RequestServices.GetRequiredService<ILogger<ChatStreamResult>>();
         var json = httpContext.RequestServices.GetRequiredService<IOptions<JsonOptions>>().Value.SerializerOptions;
@@ -37,10 +52,10 @@ internal sealed class ChatStreamResult(ChatCompletionRequest request, ChatServic
         {
             await writer.WriteAsync(
                 "start",
-                new StreamStartEvent(httpContext.TraceIdentifier, request.Model, DateTimeOffset.UtcNow),
+                new StreamStartEvent(httpContext.TraceIdentifier, model, DateTimeOffset.UtcNow, conversationId),
                 cancellationToken);
 
-            await foreach (var chunk in chat.StreamAsync(request, cancellationToken))
+            await foreach (var chunk in source(cancellationToken))
             {
                 if (chunk.Content.Length > 0)
                 {

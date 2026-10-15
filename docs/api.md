@@ -229,3 +229,87 @@ A snapshot for the dashboard (example values below are illustrative). Every numb
 ```
 
 `totalRequests` counts chat requests that passed validation. `failed` covers both pre-stream failures (such as `model_not_found`) and mid-stream failures. `recentFailures` holds the last 10.
+
+## Conversations (Phase 2)
+
+History is stored on the server in SQLite. Clients send **only the new message**. The API loads the stored history, chooses the context window, persists the user message, streams the reply, and persists the reply when the stream ends:
+
+- `complete`: with stats.
+- `stopped`: the client disconnected or pressed Stop. Partial text is kept.
+- `error`: with `error.code` and `error.message`. Partial text is kept.
+
+Additional error codes:
+
+| Status | `code` | When |
+|---|---|---|
+| 404 | `conversation_not_found` | Unknown or deleted conversation id |
+| 409 | `conversation_busy` | A reply is already streaming in this conversation (sending, regenerating, or deleting) |
+| 409 | `nothing_to_regenerate` | Regenerate requested but the conversation has no user message to answer |
+
+### `GET /api/conversations?limit=50`
+
+`limit` is clamped to 1–200. Results are ordered by `updatedAt`, newest first.
+
+```json
+{ "conversations": [
+  { "id": "30810114-a543-484c-852e-6c68ac9db208", "title": "My name is Minh. Reply with one short sentence.",
+    "createdAt": "…", "updatedAt": "…", "messageCount": 4, "lastModel": "qwen2.5:0.5b" } ] }
+```
+
+### `POST /api/conversations`
+
+Body: `{ "title": "optional" }`. Returns **201** with a `Location` header and the `Conversation` object (empty `messages`). If no title is given, the first user message (first 60 characters, whitespace collapsed) becomes the title.
+
+### `GET /api/conversations/{id}`
+
+```json
+{
+  "id": "30810114-…", "title": "…", "createdAt": "…", "updatedAt": "…",
+  "messages": [
+    { "id": "…", "sequence": 1, "role": "user", "content": "What is my name?", "status": "complete",
+      "model": null, "error": null, "stats": null, "createdAt": "…" },
+    { "id": "…", "sequence": 2, "role": "assistant", "content": "Your name is Minh.", "status": "complete",
+      "model": "qwen2.5:0.5b", "error": null,
+      "stats": { "promptTokens": 61, "completionTokens": 6, "totalDurationMs": 613, "loadDurationMs": 21, "generationDurationMs": 530, "tokensPerSecond": 11.3 },
+      "createdAt": "…" },
+    { "id": "…", "sequence": 4, "role": "assistant", "content": "Part", "status": "error", "model": "qwen2.5:0.5b",
+      "error": { "code": "provider_timeout", "message": "The inference service did not respond within 300 seconds." },
+      "stats": null, "createdAt": "…" }
+  ]
+}
+```
+
+### `PATCH /api/conversations/{id}`
+
+Body: `{ "title": "New title" }` (1–120 characters after trimming). Returns **204**.
+
+### `DELETE /api/conversations/{id}`
+
+Returns **204**. Messages are deleted with the conversation. Returns 409 while a reply is streaming.
+
+### `POST /api/conversations/{id}/messages/stream`
+
+```json
+{ "model": "qwen2.5:0.5b", "content": "What is my name?", "temperature": 0.2, "maxTokens": 256 }
+```
+
+- `content` follows the same rules as a chat message (non-empty, at most `MaxMessageLength`). Validation errors use the key `content`.
+- `model`, `temperature`, and `maxTokens` are validated exactly as for `/api/chat`.
+- The SSE response is identical to `/api/chat/stream`, except that `start` includes `"conversationId"`.
+- **Context window:** the newest eligible stored messages that fit `Chat:MaxMessages` and `Chat:MaxConversationLength` (characters). Eligible means all user messages, plus assistant replies that are `complete` or `stopped` and non-empty. Failed replies are never sent to the model.
+- If validation fails, the model is unknown, or Ollama is down, the API responds **before** storing anything, so no orphan user message is left behind.
+
+### `POST /api/conversations/{id}/regenerate/stream`
+
+Body: `{ "model": "qwen2.5:0.5b", "temperature": null, "maxTokens": null }`.
+
+Deletes the last assistant reply, if the last message is one, and streams a new reply to the last user message. This is what the UI's **Retry** button calls. The SSE format is the same as above.
+
+```bash
+ID=$(curl -s -X POST localhost:5080/api/conversations -H 'Content-Type: application/json' -d '{}' | jq -r .id)
+curl -N -X POST localhost:5080/api/conversations/$ID/messages/stream \
+  -H 'Content-Type: application/json' -d '{"model":"qwen2.5:0.5b","content":"Hello"}'
+curl -s localhost:5080/api/conversations/$ID | jq
+```
+
+The stateless `/api/chat` and `/api/chat/stream` endpoints remain available for integrations that manage their own history.

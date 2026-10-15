@@ -51,7 +51,7 @@ internal static class ChatEndpoints
 
         // Model resolution happens before the stream starts so failures get a proper status code.
         var prepared = await chat.PrepareAsync(validation.Request!, cancellationToken);
-        return new ChatStreamResult(prepared, chat);
+        return new ChatStreamResult(prepared.Model, ct => chat.StreamAsync(prepared, ct));
     }
 
     private static async Task<IResult> CompleteAsync(

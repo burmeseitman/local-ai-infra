@@ -39,6 +39,12 @@ internal sealed class ApiExceptionHandler(
                     "Request {Path} failed: {Code} ({Detail})", httpContext.Request.Path, error.Code, inference.ProviderDetail ?? inference.Message);
                 break;
 
+            case ConversationException conversation:
+                error = ErrorCatalog.For(conversation);
+                detail = conversation.Message;
+                logger.LogInformation("Request {Path} rejected: {Code}", httpContext.Request.Path, error.Code);
+                break;
+
             case BadHttpRequestException badRequest:
                 var tooLarge = badRequest.StatusCode == StatusCodes.Status413PayloadTooLarge;
                 error = new ApiError(

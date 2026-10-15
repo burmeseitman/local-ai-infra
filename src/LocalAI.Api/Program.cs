@@ -6,6 +6,7 @@ using LocalAI.Api.Configuration;
 using LocalAI.Api.Endpoints;
 using LocalAI.Api.Middleware;
 using LocalAI.Core;
+using LocalAI.Persistence;
 using LocalAI.Providers;
 using Microsoft.AspNetCore.Cors.Infrastructure;
 using Microsoft.AspNetCore.Diagnostics;
@@ -27,6 +28,7 @@ services.AddSingleton<ApiRuntimeInfo>();
 // ---- Application + provider
 services.AddLocalAiCore(builder.Configuration);
 services.AddOllamaProvider(builder.Configuration);
+services.AddSqlitePersistence(builder.Configuration, builder.Environment.ContentRootPath);
 
 // ---- HTTP surface
 services.AddOptions<KestrelServerOptions>()
@@ -113,8 +115,10 @@ if (app.Services.GetRequiredService<IOptions<ApiOptions>>().Value.EnableSwagger)
 
 app.MapStatusEndpoints();
 app.MapChatEndpoints();
+app.MapConversationEndpoints();
 
-app.Run();
+await app.Services.InitializeDatabaseAsync();
+await app.RunAsync();
 
 /// <summary>Entry point; partial so integration tests can use WebApplicationFactory&lt;Program&gt;.</summary>
 public partial class Program;

@@ -6,6 +6,12 @@ TestResults/
 *.suo
 .vs/
 
+# Local SQLite data (conversations)
+src/LocalAI.Api/data/
+*.db
+*.db-shm
+*.db-wal
+
 # Node / Vite
 node_modules/
 dist/

@@ -5,6 +5,7 @@
   <ItemGroup>
     <ProjectReference Include="../LocalAI.Core/LocalAI.Core.csproj" />
     <ProjectReference Include="../LocalAI.Providers/LocalAI.Providers.csproj" />
+    <ProjectReference Include="../LocalAI.Persistence/LocalAI.Persistence.csproj" />
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Swashbuckle.AspNetCore" />
