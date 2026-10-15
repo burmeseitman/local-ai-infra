@@ -12,12 +12,14 @@ const NAV: { route: Route; label: string; icon: ReactNode }[] = [
 
 interface AppLayoutProps {
   route: Route;
+  /** Link for the Chat item; keeps the open conversation when returning from other pages. */
+  chatHref: string;
   status: PlatformStatus;
   generating: boolean;
   children: ReactNode;
 }
 
-export function AppLayout({ route, status, generating, children }: AppLayoutProps) {
+export function AppLayout({ route, chatHref, status, generating, children }: AppLayoutProps) {
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -25,7 +27,7 @@ export function AppLayout({ route, status, generating, children }: AppLayoutProp
           <span className="brand__mark" aria-hidden="true" />
           <div>
             <div className="brand__name">Local AI Infrastructure</div>
-            <div className="brand__sub">Phase 1 · Ollama</div>
+            <div className="brand__sub">Phase 2 · Ollama</div>
           </div>
         </div>
 
@@ -33,7 +35,7 @@ export function AppLayout({ route, status, generating, children }: AppLayoutProp
           {NAV.map((item) => (
             <a
               key={item.route}
-              href={`#/${item.route}`}
+              href={item.route === "chat" ? chatHref : `#/${item.route}`}
               className={`nav__link${route === item.route ? " is-active" : ""}`}
               aria-current={route === item.route ? "page" : undefined}
             >

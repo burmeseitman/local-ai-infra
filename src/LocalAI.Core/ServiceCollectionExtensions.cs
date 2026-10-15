@@ -23,6 +23,8 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ProviderStatusService>();
         services.TryAddSingleton<ChatRequestValidator>();
         services.TryAddScoped<ChatService>();
+        services.TryAddSingleton<ConversationLocks>();
+        services.TryAddScoped<ConversationService>();
         return services;
     }
 }

@@ -4,8 +4,13 @@
 !LocalAI.sln
 !src/LocalAI.Core/**
 !src/LocalAI.Providers/**
+!src/LocalAI.Persistence/**
 !src/LocalAI.Api/**
 !tests/**
 **/bin/
 **/obj/
 **/TestResults/
+src/LocalAI.Api/data/
+**/*.db
+**/*.db-shm
+**/*.db-wal

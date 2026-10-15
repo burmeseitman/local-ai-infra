@@ -1,5 +1,5 @@
 import { vi } from "vitest";
-import type { ModelInfo, ModelListResponse, SystemOverview } from "../types/api";
+import type { Conversation, ConversationSummary, ModelInfo, ModelListResponse, StoredMessage, SystemOverview } from "../types/api";
 
 const encoder = new TextEncoder();
 
@@ -117,21 +117,77 @@ export function streamResponse(...frames: string[]): Response {
   return new Response(body, { status: 200, headers: { "Content-Type": "text/event-stream" } });
 }
 
-type Handler = (init: RequestInit | undefined) => Response | Promise<Response>;
+type Handler = (init: RequestInit | undefined, params: Record<string, string>) => Response | Promise<Response>;
 
-/** Routes fetch calls by "METHOD path" (query string ignored). Unmatched calls fail the test loudly. */
+function compile(pattern: string): (key: string) => Record<string, string> | null {
+  const names: string[] = [];
+  const source = pattern
+    .split("/")
+    .map((segment) => {
+      if (segment.startsWith(":")) {
+        names.push(segment.slice(1));
+        return "([^/]+)";
+      }
+      return segment.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    })
+    .join("/");
+  const regex = new RegExp(`^${source}$`);
+  return (key) => {
+    const match = regex.exec(key);
+    return match ? Object.fromEntries(names.map((n, i) => [n, decodeURIComponent(match[i + 1]!)])) : null;
+  };
+}
+
+/**
+ * Routes fetch calls by "METHOD /path" patterns (":name" matches one segment; the query string
+ * is ignored). Unmatched calls fail the test loudly.
+ */
 export function installFetch(routes: Record<string, Handler>) {
-  const calls: { key: string; init: RequestInit | undefined }[] = [];
+  const compiled = Object.entries(routes).map(([pattern, handler]) => ({ pattern, handler, match: compile(pattern) }));
+  const calls: { key: string; route: string; init: RequestInit | undefined }[] = [];
   const mock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input.toString(), "http://localhost");
     const key = `${init?.method ?? "GET"} ${url.pathname}`;
-    calls.push({ key, init });
-    const handler = routes[key];
-    if (!handler) {
-      throw new Error(`Unexpected fetch: ${key}`);
+    for (const route of compiled) {
+      const params = route.match(key);
+      if (params) {
+        calls.push({ key, route: route.pattern, init });
+        return route.handler(init, params);
+      }
     }
-    return handler(init);
+    throw new Error(`Unexpected fetch: ${key}`);
   });
   vi.stubGlobal("fetch", mock);
-  return { mock, calls, callsTo: (key: string) => calls.filter((c) => c.key === key) };
+  return {
+    mock,
+    calls,
+    /** Calls matched by a route pattern (or exact key). */
+    callsTo: (pattern: string) => calls.filter((c) => c.route === pattern || c.key === pattern),
+  };
+}
+
+export function conversation(id: string, title: string, messages: Partial<StoredMessage>[] = []): Conversation {
+  const now = new Date().toISOString();
+  return {
+    id,
+    title,
+    createdAt: now,
+    updatedAt: now,
+    messages: messages.map((m, i) => ({
+      id: `${id}-m${i}`,
+      sequence: i + 1,
+      role: "user",
+      content: "",
+      status: "complete",
+      model: null,
+      error: null,
+      stats: null,
+      createdAt: now,
+      ...m,
+    })),
+  };
+}
+
+export function summary(c: Conversation): ConversationSummary {
+  return { id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt, messageCount: c.messages.length, lastModel: null };
 }

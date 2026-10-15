@@ -24,6 +24,17 @@ public static class ErrorCatalog
         Retryable = exception.IsTransient,
     };
 
+    public static ApiError For(ConversationException exception) => exception.Code switch
+    {
+        ConversationErrorCode.NotFound =>
+            new(StatusCodes.Status404NotFound, "conversation_not_found", "Conversation not found", false),
+        ConversationErrorCode.Busy =>
+            new(StatusCodes.Status409Conflict, "conversation_busy", "Conversation busy", true),
+        ConversationErrorCode.NothingToRegenerate =>
+            new(StatusCodes.Status409Conflict, "nothing_to_regenerate", "Nothing to regenerate", false),
+        _ => Internal,
+    };
+
     public static readonly ApiError Internal =
         new(StatusCodes.Status500InternalServerError, "internal_error", "Internal server error", false);
 

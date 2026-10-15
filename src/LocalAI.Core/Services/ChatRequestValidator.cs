@@ -25,6 +25,26 @@ public sealed partial class ChatRequestValidator(IOptions<ChatOptions> options)
     public static bool IsValidModelName(string value) =>
         value.Length <= MaxModelNameLength && ModelNamePattern().IsMatch(value);
 
+    /// <summary>
+    /// Validates one new user message for a stored conversation. Error keys are
+    /// <c>model</c>, <c>content</c>, <c>temperature</c> and <c>maxTokens</c>.
+    /// </summary>
+    public ChatValidationResult ValidateTurn(string? model, string? content, double? temperature, int? maxTokens)
+    {
+        var result = Validate(new UnvalidatedChatRequest(model, [new UnvalidatedChatMessage("user", content)], temperature, maxTokens));
+        var errors = result.Errors.ToDictionary(
+            e => e.Key.StartsWith("messages", StringComparison.Ordinal) ? "content" : e.Key,
+            e => e.Value);
+        return result with { Errors = errors };
+    }
+
+    /// <summary>
+    /// Validates model and sampling options only (used when regenerating from stored history).
+    /// The returned request's messages are a placeholder and must not be sent.
+    /// </summary>
+    public ChatValidationResult ValidateGeneration(string? model, double? temperature, int? maxTokens) =>
+        Validate(new UnvalidatedChatRequest(model, [new UnvalidatedChatMessage("user", "-")], temperature, maxTokens));
+
     public ChatValidationResult Validate(UnvalidatedChatRequest input)
     {
         var limits = options.Value;

@@ -73,6 +73,7 @@ services:
       Chat__DefaultMaxTokens: ${CHAT_DEFAULT_MAX_TOKENS:-1024}
       Chat__MaxTokensLimit: ${CHAT_MAX_TOKENS_LIMIT:-4096}
       Chat__AllowRemoteModels: ${CHAT_ALLOW_REMOTE_MODELS:-false}
+      Persistence__ConnectionString: Data Source=/app/data/localai.db
     ports:
       # Loopback only: for curl/Swagger on the host. The browser uses the web proxy.
       - "127.0.0.1:${API_PORT:-5080}:8080"
@@ -82,6 +83,9 @@ services:
     read_only: true
     tmpfs:
       - /tmp
+    volumes:
+      # Conversation history (SQLite). Survives `docker compose down`; removed by `down -v`.
+      - api-data:/app/data
 
   web:
     <<: *hardening
@@ -107,6 +111,7 @@ services:
 
 volumes:
   ollama-models:
+  api-data:
 
 networks:
   # web <-> api only; the web container cannot reach Ollama.

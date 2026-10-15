@@ -21,22 +21,28 @@ function parsePayload<T>(data: string): T {
   }
 }
 
+/** Stateless streaming: the client sends the whole history (POST /api/chat/stream). */
+export function streamChat(request: ChatRequest, handlers: StreamHandlers, signal: AbortSignal): Promise<StreamDoneEvent> {
+  return streamSse("/api/chat/stream", request, handlers, signal);
+}
+
 /**
- * Streams a chat completion from POST /api/chat/stream.
+ * POSTs `body` to an SSE endpoint and dispatches its events (start, delta*, done | error).
  * Resolves with the `done` event; rejects with ApiError on failure, or with an
  * AbortError when `signal` is aborted (the caller's "Stop").
  */
-export async function streamChat(
-  request: ChatRequest,
+export async function streamSse(
+  path: string,
+  body: unknown,
   handlers: StreamHandlers,
   signal: AbortSignal,
 ): Promise<StreamDoneEvent> {
   let response: Response;
   try {
-    response = await fetch(`${API_BASE_URL}/api/chat/stream`, {
+    response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
-      body: JSON.stringify(request),
+      body: JSON.stringify(body),
       signal,
     });
   } catch (error) {

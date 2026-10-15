@@ -18,6 +18,9 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 
     public int MaxConcurrentGenerations { get; init; } = 2;
 
+    /// <summary>Each factory gets its own SQLite file so tests never share conversations.</summary>
+    public string DatabasePath { get; } = Path.Combine(Path.GetTempPath(), $"localai-test-{Guid.NewGuid():N}.db");
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -26,11 +29,22 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Chat:ModelListCacheDuration", "00:00:00");
         builder.UseSetting("Api:MaxConcurrentGenerations", MaxConcurrentGenerations.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.UseSetting("Api:MaxRequestBodyBytes", "65536");
+        builder.UseSetting("Persistence:ConnectionString", $"Data Source={DatabasePath}");
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IChatProvider>();
             services.AddSingleton<IChatProvider>(Provider);
         });
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        base.Dispose(disposing);
+        Microsoft.Data.Sqlite.SqliteConnection.ClearAllPools();
+        foreach (var suffix in new[] { "", "-wal", "-shm" })
+        {
+            File.Delete(DatabasePath + suffix);
+        }
     }
 }
 
