@@ -1,5 +1,7 @@
 # Local AI Infrastructure — Phase 1
 
+[![CI](https://github.com/burmeseitman/local-ai-infra/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/burmeseitman/local-ai-infra/actions/workflows/ci.yml)
+
 A self-hosted platform for running and using a local large language model behind a properly engineered API.
 
 It has three parts:
@@ -266,6 +268,14 @@ curl -N -X POST http://127.0.0.1:5080/api/chat/stream \
 Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a GPU, or a downloaded model.
 
 > **Machines with only a newer .NET SDK/runtime.** Test projects use `RollForward=Major`, so `Core` and `Providers` tests run on a newer runtime. The `Api` integration tests do **not**: the .NET 8 `TestHost` package is incompatible with the .NET 10 runtime's System.Text.Json (`ResponseBodyPipeWriter does not implement UnflushedBytes`). Install the .NET 8 runtime or use the Docker test stage above.
+
+### Continuous integration
+
+[`.github/workflows/ci.yml`](.github/workflows/ci.yml) runs on every pull request and every push to `main`, with no secrets and no Ollama:
+
+- **Backend**: the Docker `test` stage above (real .NET 8 SDK), with BuildKit layer caching.
+- **Web**: Node 22, `npm ci`, lint, typecheck, tests, and a production build.
+- **Compose**: `docker compose config --quiet` for the base file and for the GPU and Ollama-port overlays.
 
 ## Troubleshooting
 
