@@ -1,0 +1,115 @@
+# Local AI Infrastructure — Phase 1
+#
+#   cp .env.example .env              # optional; every value has a safe default
+#   docker compose up -d --build
+#   docker compose exec ollama ollama pull qwen2.5:0.5b
+#   open http://localhost:8080
+#
+# Optional overlays (see README):
+#   NVIDIA GPU:          -f infrastructure/compose/docker-compose.gpu.yml
+#   Ollama on localhost: -f infrastructure/compose/docker-compose.ollama-port.yml
+
+name: local-ai-infrastructure
+
+x-hardening: &hardening
+  security_opt:
+    - no-new-privileges:true
+  cap_drop:
+    - ALL
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  ollama:
+    image: ollama/ollama:${OLLAMA_IMAGE_TAG:-0.40.4}
+    restart: unless-stopped
+    environment:
+      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-5m}
+      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
+      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
+    volumes:
+      - ollama-models:/root/.ollama
+    # No published ports: only the api service can reach Ollama.
+    networks:
+      - backend
+    healthcheck:
+      # The CLI talks to the local server, so this passes only once the HTTP API is up.
+      test: ["CMD", "ollama", "list"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  api:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: infrastructure/docker/api.Dockerfile
+      target: runtime
+    image: localai-api:local
+    restart: unless-stopped
+    depends_on:
+      ollama:
+        # Ordering only. The API still treats Ollama as optional at runtime and reports
+        # readiness through /api/health/ready; it does not assume a model is loaded.
+        condition: service_healthy
+    environment:
+      ASPNETCORE_ENVIRONMENT: ${ASPNETCORE_ENVIRONMENT:-Production}
+      Logging__LogLevel__Default: ${LOG_LEVEL:-Information}
+      Api__EnableSwagger: ${API_ENABLE_SWAGGER:-false}
+      Api__MaxConcurrentGenerations: ${API_MAX_CONCURRENT_GENERATIONS:-2}
+      Ollama__BaseUrl: http://ollama:11434
+      Ollama__InferenceTimeout: ${OLLAMA_INFERENCE_TIMEOUT:-00:05:00}
+      Chat__DefaultModel: ${OLLAMA_DEFAULT_MODEL:-qwen2.5:0.5b}
+      Chat__MaxMessageLength: ${CHAT_MAX_MESSAGE_LENGTH:-8000}
+      Chat__DefaultMaxTokens: ${CHAT_DEFAULT_MAX_TOKENS:-1024}
+      Chat__MaxTokensLimit: ${CHAT_MAX_TOKENS_LIMIT:-4096}
+      Chat__AllowRemoteModels: ${CHAT_ALLOW_REMOTE_MODELS:-false}
+    ports:
+      # Loopback only: for curl/Swagger on the host. The browser uses the web proxy.
+      - "127.0.0.1:${API_PORT:-5080}:8080"
+    networks:
+      - backend
+      - frontend
+    read_only: true
+    tmpfs:
+      - /tmp
+
+  web:
+    <<: *hardening
+    build:
+      context: .
+      dockerfile: infrastructure/docker/web.Dockerfile
+      target: runtime
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    image: localai-web:local
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    ports:
+      # Bound to localhost by default. See README "Network exposure" before changing.
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    networks:
+      - frontend
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  ollama-models:
+
+networks:
+  # web <-> api only; the web container cannot reach Ollama.
+  frontend:
+  # api <-> ollama. Not "internal" so `ollama pull` can download models.
+  backend:

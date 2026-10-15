@@ -1,0 +1,12 @@
+# Optional NVIDIA GPU acceleration for Ollama (Linux / WSL2 with the NVIDIA Container Toolkit).
+#   docker compose -f docker-compose.yml -f infrastructure/compose/docker-compose.gpu.yml up -d
+# Not applicable to Docker Desktop on macOS: containers cannot use Apple Silicon GPUs.
+services:
+  ollama:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]

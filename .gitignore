@@ -1,0 +1,25 @@
+# .NET
+bin/
+obj/
+TestResults/
+*.user
+*.suo
+.vs/
+
+# Node / Vite
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Environment (never commit real configuration)
+.env
+.env.*
+!.env.example
+!**/.env.example
+
+# Editors / OS
+.idea/
+.vscode/*
+!.vscode/extensions.json
+.DS_Store

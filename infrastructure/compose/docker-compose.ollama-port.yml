@@ -1,0 +1,8 @@
+# Optional: publish the containerized Ollama API on the host loopback interface, e.g. to
+# run the API with `dotnet run` against it. Never bind this to 0.0.0.0: Ollama has no
+# authentication.
+#   docker compose -f docker-compose.yml -f infrastructure/compose/docker-compose.ollama-port.yml up -d
+services:
+  ollama:
+    ports:
+      - "127.0.0.1:${OLLAMA_PORT:-11435}:11434"

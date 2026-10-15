@@ -1,0 +1,7 @@
+**
+!src/LocalAI.Web/**
+!infrastructure/docker/nginx.conf
+src/LocalAI.Web/node_modules/
+src/LocalAI.Web/dist/
+src/LocalAI.Web/.env
+src/LocalAI.Web/.env.*

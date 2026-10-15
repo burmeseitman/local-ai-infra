@@ -1,0 +1,11 @@
+**
+!Directory.Build.props
+!Directory.Packages.props
+!LocalAI.sln
+!src/LocalAI.Core/**
+!src/LocalAI.Providers/**
+!src/LocalAI.Api/**
+!tests/**
+**/bin/
+**/obj/
+**/TestResults/

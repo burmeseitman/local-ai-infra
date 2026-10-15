@@ -1,0 +1,21 @@
+<Project>
+  <Import Project="$([MSBuild]::GetPathOfFileAbove('Directory.Build.props', '$(MSBuildThisFileDirectory)../'))" />
+
+  <PropertyGroup>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <!--
+      Tests target net8.0. "Major" uses the .NET 8 runtime when present and only
+      rolls forward to a newer major runtime on machines without .NET 8.
+    -->
+    <RollForward>Major</RollForward>
+    <NoWarn>$(NoWarn);CA1707;CA1515;CA1861;CA2000</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+    <Using Include="Xunit" />
+  </ItemGroup>
+</Project>
