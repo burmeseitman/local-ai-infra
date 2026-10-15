@@ -1,0 +1,82 @@
+# Runs every test suite on pull requests and on pushes to main.
+# No secrets, Ollama, GPU, or model are needed: tests use fakes and stubs.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    name: Backend tests (.NET 8, Docker)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      # The Dockerfile `test` stage is the authoritative suite (README): it pins the
+      # real .NET 8 SDK, which the Api integration tests require.
+      - name: Run backend tests
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          file: infrastructure/docker/api.Dockerfile
+          target: test
+          push: false
+          cache-from: type=gha,scope=api-test
+          cache-to: type=gha,scope=api-test,mode=max
+        env:
+          DOCKER_BUILD_SUMMARY: true
+          BUILDKIT_PROGRESS: plain
+
+  web:
+    name: Web lint, typecheck, tests, build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: src/LocalAI.Web
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: src/LocalAI.Web/package-lock.json
+
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+
+  compose:
+    name: Compose configuration
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Validate base configuration
+        run: docker compose config --quiet
+
+      - name: Validate GPU overlay
+        run: >-
+          docker compose -f docker-compose.yml
+          -f infrastructure/compose/docker-compose.gpu.yml config --quiet
+
+      - name: Validate Ollama port overlay
+        run: >-
+          docker compose -f docker-compose.yml
+          -f infrastructure/compose/docker-compose.ollama-port.yml config --quiet
