@@ -45,6 +45,17 @@ internal sealed class ApiExceptionHandler(
                 logger.LogInformation("Request {Path} rejected: {Code}", httpContext.Request.Path, error.Code);
                 break;
 
+            case AuthException auth:
+                error = ErrorCatalog.For(auth);
+                detail = auth.Message;
+                if (auth.RetryAfter is { } retryAfter)
+                {
+                    httpContext.Response.Headers.RetryAfter = Math.Ceiling(retryAfter.TotalSeconds).ToString(System.Globalization.CultureInfo.InvariantCulture);
+                }
+
+                logger.LogInformation("Request {Path} rejected: {Code}", httpContext.Request.Path, error.Code);
+                break;
+
             case BadHttpRequestException badRequest:
                 var tooLarge = badRequest.StatusCode == StatusCodes.Status413PayloadTooLarge;
                 error = new ApiError(

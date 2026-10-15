@@ -8,10 +8,11 @@ namespace LocalAI.Persistence;
 
 internal sealed class SqliteConversationStore(LocalAiDbContext db, TimeProvider timeProvider) : IConversationStore
 {
-    public async Task<IReadOnlyList<ConversationSummary>> ListAsync(int limit, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ConversationSummary>> ListAsync(Guid ownerId, int limit, CancellationToken cancellationToken)
     {
         var rows = await db.Conversations
             .AsNoTracking()
+            .Where(c => c.OwnerId == ownerId)
             .OrderByDescending(c => c.UpdatedAt)
             .Take(limit)
             .Select(c => new
@@ -32,38 +33,38 @@ internal sealed class SqliteConversationStore(LocalAiDbContext db, TimeProvider 
         return rows.Select(r => new ConversationSummary(r.Id, r.Title, r.CreatedAt, r.UpdatedAt, r.MessageCount, r.LastModel)).ToArray();
     }
 
-    public async Task<Conversation?> GetAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<Conversation?> GetAsync(Guid ownerId, Guid id, CancellationToken cancellationToken)
     {
         var entity = await db.Conversations
             .AsNoTracking()
             .Include(c => c.Messages.OrderBy(m => m.Sequence))
-            .FirstOrDefaultAsync(c => c.Id == id, cancellationToken);
+            .FirstOrDefaultAsync(c => c.Id == id && c.OwnerId == ownerId, cancellationToken);
         return entity is null ? null : ToConversation(entity);
     }
 
-    public async Task<Conversation> CreateAsync(string title, CancellationToken cancellationToken)
+    public async Task<Conversation> CreateAsync(Guid ownerId, string title, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        var entity = new ConversationEntity { Id = Guid.NewGuid(), Title = title, CreatedAt = now, UpdatedAt = now };
+        var entity = new ConversationEntity { Id = Guid.NewGuid(), OwnerId = ownerId, Title = title, CreatedAt = now, UpdatedAt = now };
         db.Conversations.Add(entity);
         await db.SaveChangesAsync(cancellationToken);
         return ToConversation(entity);
     }
 
-    public async Task<bool> RenameAsync(Guid id, string title, CancellationToken cancellationToken)
+    public async Task<bool> RenameAsync(Guid ownerId, Guid id, string title, CancellationToken cancellationToken)
     {
         var updated = await db.Conversations
-            .Where(c => c.Id == id)
+            .Where(c => c.Id == id && c.OwnerId == ownerId)
             .ExecuteUpdateAsync(
                 s => s.SetProperty(c => c.Title, title).SetProperty(c => c.UpdatedAt, timeProvider.GetUtcNow()),
                 cancellationToken);
         return updated > 0;
     }
 
-    public async Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    public async Task<bool> DeleteAsync(Guid ownerId, Guid id, CancellationToken cancellationToken)
     {
         // Messages are removed by the ON DELETE CASCADE foreign key.
-        return await db.Conversations.Where(c => c.Id == id).ExecuteDeleteAsync(cancellationToken) > 0;
+        return await db.Conversations.Where(c => c.Id == id && c.OwnerId == ownerId).ExecuteDeleteAsync(cancellationToken) > 0;
     }
 
     public async Task<StoredMessage> AppendMessageAsync(Guid conversationId, NewMessage message, CancellationToken cancellationToken)

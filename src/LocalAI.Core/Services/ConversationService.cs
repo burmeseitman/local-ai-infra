@@ -43,31 +43,31 @@ public sealed class ConversationService(
     public const int MaxListLimit = 200;
     private const int GeneratedTitleLength = 60;
 
-    public Task<IReadOnlyList<ConversationSummary>> ListAsync(int limit, CancellationToken cancellationToken) =>
-        store.ListAsync(Math.Clamp(limit, 1, MaxListLimit), cancellationToken);
+    public Task<IReadOnlyList<ConversationSummary>> ListAsync(Guid ownerId, int limit, CancellationToken cancellationToken) =>
+        store.ListAsync(ownerId, Math.Clamp(limit, 1, MaxListLimit), cancellationToken);
 
-    public async Task<Conversation> GetAsync(Guid id, CancellationToken cancellationToken) =>
-        await store.GetAsync(id, cancellationToken) ?? throw ConversationException.NotFound(id);
+    public async Task<Conversation> GetAsync(Guid ownerId, Guid id, CancellationToken cancellationToken) =>
+        await store.GetAsync(ownerId, id, cancellationToken) ?? throw ConversationException.NotFound(id);
 
-    public Task<Conversation> CreateAsync(string? title, CancellationToken cancellationToken) =>
-        store.CreateAsync(NormalizeTitle(title) ?? DefaultTitle, cancellationToken);
+    public Task<Conversation> CreateAsync(Guid ownerId, string? title, CancellationToken cancellationToken) =>
+        store.CreateAsync(ownerId, NormalizeTitle(title) ?? DefaultTitle, cancellationToken);
 
-    public async Task RenameAsync(Guid id, string title, CancellationToken cancellationToken)
+    public async Task RenameAsync(Guid ownerId, Guid id, string title, CancellationToken cancellationToken)
     {
-        if (!await store.RenameAsync(id, NormalizeTitle(title) ?? DefaultTitle, cancellationToken))
+        if (!await store.RenameAsync(ownerId, id, NormalizeTitle(title) ?? DefaultTitle, cancellationToken))
         {
             throw ConversationException.NotFound(id);
         }
     }
 
-    public async Task DeleteAsync(Guid id, CancellationToken cancellationToken)
+    public async Task DeleteAsync(Guid ownerId, Guid id, CancellationToken cancellationToken)
     {
-        if (locks.IsHeld(id))
+        if (locks.IsHeld(id) && await store.GetAsync(ownerId, id, cancellationToken) is not null)
         {
             throw ConversationException.Busy();
         }
 
-        if (!await store.DeleteAsync(id, cancellationToken))
+        if (!await store.DeleteAsync(ownerId, id, cancellationToken))
         {
             throw ConversationException.NotFound(id);
         }
@@ -78,13 +78,16 @@ public sealed class ConversationService(
     /// validated request containing exactly the new user message.
     /// </summary>
     public async Task<ConversationTurn> BeginTurnAsync(
-        Guid conversationId, ChatCompletionRequest userTurn, CancellationToken cancellationToken)
+        Guid ownerId, Guid conversationId, ChatCompletionRequest userTurn, CancellationToken cancellationToken)
     {
         var userMessage = userTurn.Messages[^1];
+        // Ownership first, so another user's busy conversation still reads as "not found".
+        await GetAsync(ownerId, conversationId, cancellationToken);
         var lease = locks.Acquire(conversationId);
         try
         {
-            var conversation = await GetAsync(conversationId, cancellationToken);
+            // Re-read under the lock so a reply saved by a just-finished turn is included.
+            var conversation = await GetAsync(ownerId, conversationId, cancellationToken);
 
             // Resolve the model before storing anything, so a bad model leaves no orphan message.
             var prepared = await chat.PrepareAsync(userTurn, cancellationToken);
@@ -93,7 +96,7 @@ public sealed class ConversationService(
 
             if (conversation.Messages.Count == 0 && conversation.Title == DefaultTitle)
             {
-                await store.RenameAsync(conversationId, TitleFrom(userMessage.Content), cancellationToken);
+                await store.RenameAsync(ownerId, conversationId, TitleFrom(userMessage.Content), cancellationToken);
             }
 
             var history = Window([.. conversation.Messages, stored]);
@@ -108,12 +111,13 @@ public sealed class ConversationService(
 
     /// <summary>Replaces the last assistant reply (if any) with a new generation.</summary>
     public async Task<ConversationTurn> BeginRegenerateAsync(
-        Guid conversationId, string model, GenerationOptions generation, CancellationToken cancellationToken)
+        Guid ownerId, Guid conversationId, string model, GenerationOptions generation, CancellationToken cancellationToken)
     {
+        await GetAsync(ownerId, conversationId, cancellationToken);
         var lease = locks.Acquire(conversationId);
         try
         {
-            var conversation = await GetAsync(conversationId, cancellationToken);
+            var conversation = await GetAsync(ownerId, conversationId, cancellationToken);
             var replaced = conversation.Messages.Count > 0 && conversation.Messages[^1].Role == ChatRole.Assistant
                 ? conversation.Messages[^1]
                 : null;

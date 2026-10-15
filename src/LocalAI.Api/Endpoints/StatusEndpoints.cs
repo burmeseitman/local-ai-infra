@@ -12,7 +12,8 @@ internal static class StatusEndpoints
 {
     public static IEndpointRouteBuilder MapStatusEndpoints(this IEndpointRouteBuilder app)
     {
-        var health = app.MapGroup("/api/health").WithTags("Health");
+        // Health probes stay anonymous so Docker and monitoring can call them.
+        var health = app.MapGroup("/api/health").WithTags("Health").AllowAnonymous();
         health.MapGet("/", GetHealth)
             .WithName("GetHealth")
             .WithSummary("Liveness: the API process is up. Does not check dependencies.");

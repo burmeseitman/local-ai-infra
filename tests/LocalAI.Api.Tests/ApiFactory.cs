@@ -21,6 +21,40 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
     /// <summary>Each factory gets its own SQLite file so tests never share conversations.</summary>
     public string DatabasePath { get; } = Path.Combine(Path.GetTempPath(), $"localai-test-{Guid.NewGuid():N}.db");
 
+    public string KeysDirectory { get; } = Path.Combine(Path.GetTempPath(), $"localai-test-keys-{Guid.NewGuid():N}");
+
+    public const string AdminUsername = "admin";
+    public const string AdminPassword = "admin-password-123";
+
+    private readonly SemaphoreSlim _setupGate = new(1, 1);
+    private bool _setupDone;
+
+    /// <summary>A client signed in as the administrator (created on first use via /api/auth/setup).</summary>
+    public async Task<HttpClient> CreateAuthenticatedClientAsync(string username = AdminUsername, string password = AdminPassword)
+    {
+        var client = CreateClient(); // handles cookies
+        await _setupGate.WaitAsync();
+        try
+        {
+            if (!_setupDone)
+            {
+                (await client.PostAsJsonAsync("/api/auth/setup", new { username = AdminUsername, password = AdminPassword })).EnsureSuccessStatusCode();
+                _setupDone = true;
+                if (username == AdminUsername)
+                {
+                    return client;
+                }
+            }
+        }
+        finally
+        {
+            _setupGate.Release();
+        }
+
+        (await client.PostAsJsonAsync("/api/auth/login", new { username, password })).EnsureSuccessStatusCode();
+        return client;
+    }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.UseEnvironment("Testing");
@@ -30,6 +64,7 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Api:MaxConcurrentGenerations", MaxConcurrentGenerations.ToString(System.Globalization.CultureInfo.InvariantCulture));
         builder.UseSetting("Api:MaxRequestBodyBytes", "65536");
         builder.UseSetting("Persistence:ConnectionString", $"Data Source={DatabasePath}");
+        builder.UseSetting("Session:KeysDirectory", KeysDirectory);
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IChatProvider>();
@@ -45,6 +80,13 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         {
             File.Delete(DatabasePath + suffix);
         }
+
+        if (Directory.Exists(KeysDirectory))
+        {
+            Directory.Delete(KeysDirectory, recursive: true);
+        }
+
+        _setupGate.Dispose();
     }
 }
 

@@ -9,13 +9,15 @@ public sealed class InMemoryConversationStore : IConversationStore
 {
     private readonly object _gate = new();
     private readonly Dictionary<Guid, Conversation> _items = new();
+    private readonly Dictionary<Guid, Guid> _owners = new();
     private long _clock;
 
-    public Task<IReadOnlyList<ConversationSummary>> ListAsync(int limit, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<ConversationSummary>> ListAsync(Guid ownerId, int limit, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
             IReadOnlyList<ConversationSummary> result = _items.Values
+                .Where(c => _owners[c.Id] == ownerId)
                 .OrderByDescending(c => c.UpdatedAt)
                 .Take(limit)
                 .Select(c => new ConversationSummary(c.Id, c.Title, c.CreatedAt, c.UpdatedAt, c.Messages.Count,
@@ -25,30 +27,31 @@ public sealed class InMemoryConversationStore : IConversationStore
         }
     }
 
-    public Task<Conversation?> GetAsync(Guid id, CancellationToken cancellationToken)
+    public Task<Conversation?> GetAsync(Guid ownerId, Guid id, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
-            return Task.FromResult(_items.GetValueOrDefault(id));
+            return Task.FromResult(Owned(ownerId, id) ? _items[id] : null);
         }
     }
 
-    public Task<Conversation> CreateAsync(string title, CancellationToken cancellationToken)
+    public Task<Conversation> CreateAsync(Guid ownerId, string title, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
             var now = Tick();
             var conversation = new Conversation(Guid.NewGuid(), title, now, now, []);
             _items[conversation.Id] = conversation;
+            _owners[conversation.Id] = ownerId;
             return Task.FromResult(conversation);
         }
     }
 
-    public Task<bool> RenameAsync(Guid id, string title, CancellationToken cancellationToken)
+    public Task<bool> RenameAsync(Guid ownerId, Guid id, string title, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
-            if (!_items.TryGetValue(id, out var c))
+            if (!Owned(ownerId, id) || !_items.TryGetValue(id, out var c))
             {
                 return Task.FromResult(false);
             }
@@ -58,11 +61,11 @@ public sealed class InMemoryConversationStore : IConversationStore
         }
     }
 
-    public Task<bool> DeleteAsync(Guid id, CancellationToken cancellationToken)
+    public Task<bool> DeleteAsync(Guid ownerId, Guid id, CancellationToken cancellationToken)
     {
         lock (_gate)
         {
-            return Task.FromResult(_items.Remove(id));
+            return Task.FromResult(Owned(ownerId, id) && _items.Remove(id) && _owners.Remove(id));
         }
     }
 
@@ -98,6 +101,8 @@ public sealed class InMemoryConversationStore : IConversationStore
             return Task.FromResult(true);
         }
     }
+
+    private bool Owned(Guid ownerId, Guid id) => _items.ContainsKey(id) && _owners.TryGetValue(id, out var owner) && owner == ownerId;
 
     private DateTimeOffset Tick() => DateTimeOffset.UnixEpoch.AddSeconds(++_clock);
 }

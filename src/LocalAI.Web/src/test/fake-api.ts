@@ -191,3 +191,11 @@ export function conversation(id: string, title: string, messages: Partial<Stored
 export function summary(c: Conversation): ConversationSummary {
   return { id: c.id, title: c.title, createdAt: c.createdAt, updatedAt: c.updatedAt, messageCount: c.messages.length, lastModel: null };
 }
+
+export function authUser(username = "admin", role: "admin" | "user" = "admin") {
+  return { id: `${username}-id`, username, role, createdAt: "2026-01-01T00:00:00Z", lastLoginAt: "2026-01-02T00:00:00Z" };
+}
+
+export function signedIn(username = "admin", role: "admin" | "user" = "admin") {
+  return { setupRequired: false, user: authUser(username, role) };
+}

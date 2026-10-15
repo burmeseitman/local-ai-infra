@@ -12,7 +12,7 @@ It has three parts:
 
 No cloud AI service, API key, or paid dependency is required.
 
-**Status:** Phase 1 (platform) is complete. Phase 2 has started: server-side **conversation history** (SQLite) is done. Authentication, model admin, and monitoring are next (see [Roadmap](#roadmap)).
+**Status:** Phase 1 (platform) is complete. Phase 2 so far: server-side **conversation history** (SQLite) and **local accounts** (login, roles, per-user conversations). Model admin and monitoring are next (see [Roadmap](#roadmap)).
 
 ```
 Browser ──► React dashboard (nginx) ──/api──► ASP.NET Core API ──► IChatProvider ──► Ollama ──► local model
@@ -40,6 +40,12 @@ Browser ──► React dashboard (nginx) ──/api──► ASP.NET Core API �
 
 What Phase 1 delivers:
 
+- **Local accounts (Phase 2).**
+  - **First run:** the dashboard asks you to create the administrator. There is no default password and no public sign-up; the administrator creates the other users.
+  - **Isolation:** each user sees only their own conversations, and another user's conversation reads as "not found".
+  - **Sessions:** HttpOnly, `SameSite=Strict` cookies that expire after 7 days without use.
+  - **Passwords:** hashed with PBKDF2 (ASP.NET Core Identity's hasher). Changing a password or role signs out that user's other sessions.
+  - **Throttling:** repeated failed sign-ins lock that username for 5 minutes.
 - **Saved conversations (Phase 2).** History lives in SQLite on the server. The browser sends only the new message, and the API loads the context, stores both sides of the turn, and keeps the reply whether it completes, is stopped, or fails. You can list, open (`#/chat/<id>`), rename, and delete conversations, and history survives reloads and restarts.
 - **Chat with true end-to-end streaming.** Ollama sends NDJSON, the API turns it into Server-Sent Events, nginx passes it through unbuffered, and React renders it incrementally. You can stop, retry, start a new conversation, and copy responses. Markdown is rendered safely.
 - **Model management.** Lists the models actually installed in Ollama (size, tag, family, parameters, quantization). Lets you select one, refresh the list, and see an explicit empty state with download instructions. Ollama "cloud" models are detected and blocked by default.
@@ -89,6 +95,7 @@ The browser never talks to Ollama. All inference goes through the API, which own
 
 | Layer | Technology |
 |---|---|
+| Auth | ASP.NET Core cookie authentication + authorization (fallback policy: authenticated), `PasswordHasher` from `Microsoft.Extensions.Identity.Core` 8.0, Data Protection keys persisted to the data volume |
 | Persistence | SQLite via EF Core 8.0 (`Microsoft.EntityFrameworkCore.Sqlite`), code-first migrations, WAL mode |
 | Backend | .NET 8 (LTS), ASP.NET Core minimal APIs, C# 12 with nullable reference types, `IHttpClientFactory`, options validation, built-in rate limiting, Swashbuckle 6.9 (Swagger) |
 | Tests (backend) | xUnit 2.9, `Microsoft.AspNetCore.Mvc.Testing` 8.0 |
@@ -176,7 +183,7 @@ docker compose up -d --build
 docker compose ps               # wait until all three services are healthy
 ```
 
-Open **http://localhost:8080**. If port 8080 is taken, set `WEB_PORT=8090` in `.env` or the environment.
+Open **http://localhost:8080** and create the administrator account on first visit. If port 8080 is taken, set `WEB_PORT=8090` in `.env` or the environment.
 
 Startup order is `ollama` (healthy) → `api` (healthy) → `web`. Compose ordering only means the Ollama server is up. It does **not** mean a model is installed or loaded. The API reports that separately, and the dashboard shows "No model installed" until you pull one.
 
@@ -244,6 +251,12 @@ Configuration uses standard ASP.NET Core sources: `appsettings.json`, then `apps
 | `Chat__MaxTokensLimit` | `4096` | Upper bound for client-requested `maxTokens` |
 | `Chat__AllowRemoteModels` | `false` | Allow Ollama "cloud" models that run on a third-party host |
 | `Chat__ModelListCacheDuration` | `00:00:05` | Model list cache |
+| `Auth__MinPasswordLength` | `10` | Minimum password length (max 128) |
+| `Auth__MaxFailedLogins` / `Auth__LockoutDuration` | `5` / `00:05:00` | Failed sign-ins per username before a temporary lockout, and its length |
+| `Session__Lifetime` | `7.00:00:00` | Sliding session lifetime |
+| `Session__SecureCookie` | `false` | Mark the cookie `Secure`; **set `true` when served over HTTPS** |
+| `Session__CookieName` | `localai.session` | Cookie name |
+| `Session__KeysDirectory` | `data/keys` (compose: `/app/data/keys`) | Data Protection keys that sign session cookies |
 | `Persistence__ConnectionString` | `Data Source=data/localai.db` (compose: `/app/data/localai.db`) | SQLite file; relative paths resolve against the API content root |
 | `Api__CorsAllowedOrigins` | `[]` | Explicit origins only; wildcards rejected. Not needed with the proxy |
 | `Api__MaxRequestBodyBytes` | `262144` | Request body limit (HTTP 413 above it) |
@@ -266,16 +279,24 @@ Compose maps the friendlier names in [.env.example](.env.example) (for example `
 | POST | `/api/chat/stream` | Streams a reply as SSE: `start`, `delta`*, then `done` or `error` |
 | POST | `/api/chat` | Same request, buffered JSON response |
 | GET | `/api/system/overview` | API, provider, model, and inference statistics snapshot |
-| GET | `/api/conversations` | Saved conversations, most recently updated first |
+| GET | `/api/auth/state` | Anonymous: whether setup is required, and the signed-in user |
+| POST | `/api/auth/setup` · `/api/auth/login` · `/api/auth/logout` | Create the first admin (once) · sign in · sign out |
+| POST | `/api/auth/password` | Change your own password (signs out your other sessions) |
+| GET / POST · PATCH / DELETE | `/api/users` · `/api/users/{id}` | **Admin only:** list and create users · change role or reset password, delete (with their conversations) |
+| GET | `/api/conversations` | **Your** conversations, most recently updated first |
 | POST | `/api/conversations` | Create a conversation |
 | GET / PATCH / DELETE | `/api/conversations/{id}` | Read with messages / rename / delete |
 | POST | `/api/conversations/{id}/messages/stream` | Send **only the new message**; SSE reply; both sides stored |
 | POST | `/api/conversations/{id}/regenerate/stream` | Replace the last reply with a new streamed generation |
 
-Full contracts, the SSE event schema, and error codes are in [docs/api.md](docs/api.md).
+Everything except `/api/health*` and the anonymous `/api/auth/*` endpoints requires a session; without one the API answers 401 `unauthenticated`. Full contracts, the SSE event schema, and error codes are in [docs/api.md](docs/api.md).
 
 ```bash
-curl -N -X POST http://127.0.0.1:5080/api/chat/stream \
+# Sign in once and keep the session cookie in a jar (you are prompted for the password).
+read -rs -p "Password: " PW; echo
+curl -s -c jar -X POST http://127.0.0.1:5080/api/auth/login -H 'Content-Type: application/json' \
+  -d "{\"username\":\"admin\",\"password\":\"$PW\"}" >/dev/null
+curl -N -b jar -X POST http://127.0.0.1:5080/api/chat/stream \
   -H 'Content-Type: application/json' \
   -d '{"model":"qwen2.5:0.5b","messages":[{"role":"user","content":"Hello!"}]}'
 ```
@@ -284,11 +305,11 @@ curl -N -X POST http://127.0.0.1:5080/api/chat/stream \
 
 | Suite | Command | Count |
 |---|---|---|
-| Backend, all (authoritative, real .NET 8 SDK in Docker) | `docker build -f infrastructure/docker/api.Dockerfile --target test .` | 138 |
-| Backend, local | `dotnet test LocalAI.sln` (needs the .NET 8 runtime; see below) | 138 |
-| Frontend | `cd src/LocalAI.Web && npm test` | 27 |
+| Backend, all (authoritative, real .NET 8 SDK in Docker) | `docker build -f infrastructure/docker/api.Dockerfile --target test .` | 173 |
+| Backend, local | `dotnet test LocalAI.sln` (needs the .NET 8 runtime; see below) | 173 |
+| Frontend | `cd src/LocalAI.Web && npm test` | 34 |
 | Frontend lint / types | `npm run lint && npm run typecheck` | — |
-| Frontend, in Docker | `docker build -f infrastructure/docker/web.Dockerfile --target test .` | 27 |
+| Frontend, in Docker | `docker build -f infrastructure/docker/web.Dockerfile --target test .` | 34 |
 
 Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a GPU, or a downloaded model. Persistence tests use a real in-memory SQLite database with the real migrations, and API tests use a temporary SQLite file per test class.
 
@@ -316,6 +337,9 @@ Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a G
 | Cloud model listed as "Remote · disabled" | Intentional. Set `Chat__AllowRemoteModels=true` only if you accept third-party inference |
 | `ports are not available ... 8080` | Another process uses the port; set `WEB_PORT` (or `API_PORT`) |
 | API exits at startup with `OptionsValidationException` | A configuration value is invalid; the message names the setting |
+| Forgot the administrator password | Another admin can reset it on the Users page. If you are the only admin: `docker compose stop api`, then `docker run --rm -v local-ai-infrastructure_api-data:/d alpine sh -c 'apk add -q sqlite && sqlite3 /d/localai.db "UPDATE conversations SET OwnerId = NULL; DELETE FROM users;"'`, then `docker compose start api`. All accounts are removed, the next visit shows first-run setup, and the new administrator receives **all** existing conversations. |
+| Signed out after every API restart | The keys directory is not persisted; keep `Session__KeysDirectory` on the `api-data` volume |
+| HTTP 429 `too_many_attempts` on sign-in | Too many wrong passwords for that username; wait for the lockout (default 5 minutes) |
 | HTTP 409 `conversation_busy` | A reply is already being generated in that conversation (one at a time per conversation); wait or press Stop |
 | "Conversation not found" after a reset | The `api-data` volume was removed (`down -v`), or the link points to a deleted conversation |
 | API fails at startup with a SQLite error | The data directory is not writable; in Docker, keep the `api-data` volume mounted at `/app/data` |
@@ -325,8 +349,10 @@ Logs: `docker compose logs -f api` (prompts and responses are never logged; only
 
 ## Known limitations
 
-- No authentication. Anyone who can reach the dashboard can read, rename, and delete **all** saved conversations. The platform is meant for a single user on localhost (see [Security notes](#security-notes)).
-- Conversations are stored unencrypted in SQLite on the API host.
+- **No TLS.** The cookie travels over plain HTTP unless you put the dashboard behind HTTPS and set `Session__SecureCookie=true`.
+- No MFA, password-reset email, or SSO. Login throttling is per username and in memory, so it resets when the API restarts.
+- Conversations, password hashes, and session keys are stored unencrypted on the `api-data` volume; protect the host.
+- Deleting a user permanently deletes their conversations.
 - Only the newest messages that fit `Chat__MaxMessages` and `Chat__MaxConversationLength` are sent to the model. Older turns stay stored but leave the model's context. Limits are in characters, not model tokens.
 - One generation per conversation at a time; the lock is in-process, so a single API instance is assumed (also required by SQLite).
 - Switching to another conversation stops a generation that is still running (its partial reply is saved as stopped).
@@ -347,12 +373,16 @@ Implemented defaults:
 - Errors return Problem Details with safe messages. Upstream errors and stack traces go only to the server log.
 - CORS is off by default; explicit origins only, and wildcards are rejected.
 - Model output is untrusted. Raw HTML is not rendered, `javascript:` links are stripped, and **images in model output are not loaded**, which prevents data exfiltration through crafted image URLs. nginx sends a strict Content Security Policy.
-- Prompts and responses are not logged, including SQL parameters (EF Core sensitive-data logging stays off).
+- Prompts and responses are not logged, including SQL parameters (EF Core sensitive-data logging stays off). Passwords are never logged or returned.
+- **Authentication by default:**
+  - Every API endpoint requires a session (fallback authorization policy) except health probes and the sign-in endpoints. User management is admin-only.
+  - Session cookies are HttpOnly and `SameSite=Strict`, which also blocks cross-site request forgery. The API accepts only JSON bodies, and CORS is off.
+  - Sessions are re-validated on every request against the account's session version, so a deleted user, a changed password, or a changed role takes effect immediately.
+  - Sign-in errors don't reveal whether a username exists, and the timing is equalized.
 
-**Exposing it beyond localhost is not safe as-is.** Before binding to `0.0.0.0` or another network, add all of the following:
+**Exposing it beyond localhost needs more than the built-in login.** Before binding to `0.0.0.0` or another network, add all of the following:
 
-- Authentication, for example a reverse proxy with OIDC or basic auth.
-- TLS termination.
+- TLS termination, with `Session__SecureCookie=true`.
 - Firewall rules restricting source addresses.
 - Request rate limiting per client.
 
@@ -362,7 +392,7 @@ Never publish Ollama's port: it has no authentication. Running in Docker does no
 
 - **Phase 2 — persistence and operability:**
   - ✅ Conversation storage (SQLite, server-side history, regenerate, rename/delete).
-  - ⏭ Local-account authentication with admin/user roles and per-user conversations.
+  - ✅ Local-account authentication with admin/user roles and per-user conversations.
   - ⏭ Model pull/delete through an authenticated admin API with progress and an audit log.
   - ⏭ OpenTelemetry metrics and structured logs with Prometheus/Grafana dashboards.
 - **Phase 3 — retrieval and multiple providers:** a RAG pipeline with a vector store (e.g. Qdrant/pgvector), document ingestion, and additional `IChatProvider` implementations (llama.cpp server, vLLM, OpenAI-compatible endpoints) with per-model routing.
