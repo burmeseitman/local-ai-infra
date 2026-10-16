@@ -12,8 +12,17 @@ interface ModelSelectorProps {
 
 export function ModelSelector({ models, selected, loading, disabled, onSelect, onRefresh }: ModelSelectorProps) {
   const usable = models.filter((m) => m.isAvailable);
+  const local = usable.filter((m) => !m.isRemote);
+  const cloud = usable.filter((m) => m.isRemote);
   // Embedding models are only for documents; they never appear as chat choices.
   const unusable = models.filter((m) => !m.isAvailable && !m.isEmbedding);
+  const option = (m: ModelInfo) => (
+    <option key={m.name} value={m.name}>
+      {m.name}
+      {m.parameterSize ? ` · ${m.parameterSize}` : ""}
+      {m.isRemote ? " · cloud" : ""}
+    </option>
+  );
 
   return (
     <div className="model-selector">
@@ -28,15 +37,17 @@ export function ModelSelector({ models, selected, loading, disabled, onSelect, o
         onChange={(e) => onSelect(e.target.value)}
       >
         {usable.length === 0 && <option value="">{loading ? "Loading models…" : "No models installed"}</option>}
-        {usable.map((m) => (
-          <option key={m.name} value={m.name}>
-            {m.name}
-            {m.parameterSize ? ` · ${m.parameterSize}` : ""}
-          </option>
-        ))}
+        {cloud.length > 0 ? (
+          <>
+            <optgroup label="Local (this machine)">{local.map(option)}</optgroup>
+            <optgroup label="Cloud (runs on ollama.com)">{cloud.map(option)}</optgroup>
+          </>
+        ) : (
+          local.map(option)
+        )}
         {unusable.map((m) => (
           <option key={m.name} value={m.name} disabled>
-            {m.name} (remote — disabled)
+            {m.name} (cloud — disabled)
           </option>
         ))}
       </select>

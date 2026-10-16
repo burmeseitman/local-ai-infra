@@ -56,7 +56,7 @@ describe("App", () => {
     expect(options.map((o) => o.textContent)).toEqual([
       "llama3.2:1b · 494M",
       "qwen2.5:0.5b · 494M",
-      "glm-5:cloud (remote — disabled)",
+      "glm-5:cloud (cloud — disabled)",
     ]);
     expect(options[2]).toBeDisabled();
   });

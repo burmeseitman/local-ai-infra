@@ -103,6 +103,7 @@ export function Dashboard({ user, onSignOut }: DashboardProps) {
       chatHref={location.chatId ? `#/chat/${location.chatId}` : "#/chat"}
       status={status}
       generating={chat.isStreaming}
+      cloudModel={models.data?.models.find((m) => m.name === selectedModel)?.isRemote === true}
     >
       {location.route === "chat" && (
         <ChatPage

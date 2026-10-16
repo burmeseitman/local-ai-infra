@@ -125,3 +125,8 @@ export const UploadIcon = (p: IconProps) => (
     <path d="M17 8l-5-5-5 5M12 3v12" />
   </Icon>
 );
+export const CloudIcon = (p: IconProps) => (
+  <Icon {...p}>
+    <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z" />
+  </Icon>
+);

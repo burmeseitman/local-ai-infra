@@ -238,6 +238,16 @@ a {
   color: var(--ok);
 }
 
+.local-badge--cloud {
+  border-color: var(--warn);
+  background: var(--warn-soft);
+  color: var(--text);
+}
+
+.local-badge--cloud svg {
+  color: var(--warn);
+}
+
 .main {
   min-width: 0;
   min-height: 0;
