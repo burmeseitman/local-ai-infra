@@ -82,15 +82,17 @@ export function ModelsPage({ models, selectedModel, onSelectModel, selectionLock
                     <td>{m.family ?? "—"}</td>
                     <td>{m.parameterSize ?? "—"}</td>
                     <td className="mono">{m.quantizationLevel ?? "—"}</td>
-                    <td className="num mono">{m.isRemote ? "remote" : formatBytes(m.sizeBytes)}</td>
+                    <td className="num mono">{m.isRemote ? "cloud" : formatBytes(m.sizeBytes)}</td>
                     <td>
                       <div className="badges">
                         {m.isEmbedding ? (
                           <StatusDot tone="idle" label="Embedding (documents)" />
+                        ) : m.isRemote && m.isAvailable ? (
+                          <StatusDot tone="warn" label="Cloud · runs on ollama.com" />
                         ) : m.isAvailable ? (
                           <StatusDot tone="ok" label="Available" />
                         ) : (
-                          <StatusDot tone="warn" label="Remote · disabled" />
+                          <StatusDot tone="idle" label="Cloud · disabled" />
                         )}
                         {m.isDefault && <span className="badge">Default</span>}
                         {selected && <span className="badge badge--accent">Selected</span>}
@@ -115,8 +117,8 @@ export function ModelsPage({ models, selectedModel, onSelectModel, selectionLock
       )}
 
       <p className="muted small">
-        Remote models (for example Ollama &quot;cloud&quot; models) run on a third-party host and are disabled unless{" "}
-        <code>Chat__AllowRemoteModels=true</code> is configured.
+        Cloud models (for example Ollama &quot;:cloud&quot; models) run on ollama.com, so prompts leave this machine.
+        They can only be selected when <code>Chat__AllowRemoteModels=true</code> is configured.
       </p>
     </section>
   );

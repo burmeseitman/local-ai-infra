@@ -249,7 +249,16 @@ internal sealed class OllamaClient(
                 detail);
         }
 
-        if (LooksLikeLoadFailure(detail))
+        if (model is not null && status == HttpStatusCode.Gone)
+        {
+            // Ollama cloud answers 410 for retired cloud models.
+            return new InferenceException(
+                InferenceErrorCode.ModelNotFound,
+                $"Model '{model}' has been retired by the provider and is no longer available. Choose another model.",
+                detail);
+        }
+
+                if (LooksLikeLoadFailure(detail))
         {
             return new InferenceException(
                 InferenceErrorCode.ModelLoadFailed,

@@ -245,6 +245,27 @@ Measured on an Apple M3 Pro with 18 GB of RAM, same prompt:
 | `qwen2.5:3b` | Docker (CPU) | ~1.9 GB | ~7 tok/s | **Default.** Sensible answers; the smallest model that handles document Q&A well |
 | `qwen2.5:7b` | **Native Ollama (Apple GPU)** | ~4.7 GB | **~28 tok/s** | Best of the three, and the fastest. Recommended on a Mac |
 
+### Ollama cloud models (optional)
+
+Ollama can also proxy **cloud models** (names ending in `-cloud` or `:cloud`, e.g. `gemma4:31b-cloud` on the free plan). They are **disabled by default**, because they run on **ollama.com**: your message, the conversation history and, with *Use my documents*, the matching passages are sent there. Document indexing always stays local.
+
+To allow them:
+
+```bash
+ollama signin                 # once, on the Ollama instance the API uses (native: on the host)
+ollama pull gemma4:31b-cloud  # registers the cloud model (no large download)
+echo "CHAT_ALLOW_REMOTE_MODELS=true" >> .env
+docker compose up -d api
+```
+
+The dashboard then lists them in a separate **Cloud (runs on ollama.com)** group. When one is selected, a warning appears in the chat and the sidebar's "runs locally" note changes to say prompts go to ollama.com. Local models stay the default.
+
+Some limits to know:
+
+- The free plan has usage limits.
+- Cloud models don't report token timings, so speed shows as unknown.
+- Retired cloud models answer with *"has been retired by the provider"*. Remove them with `ollama rm <name>`.
+
 ### Native Ollama (Apple GPU)
 
 Docker Desktop on macOS can't give containers the GPU, so the bundled Ollama runs on CPU. For the best experience on a Mac, run Ollama natively and let the containers use it:
@@ -277,7 +298,7 @@ Configuration uses standard ASP.NET Core sources: `appsettings.json`, then `apps
 | `Chat__MaxMessages` | `50` | Max messages per request |
 | `Chat__DefaultMaxTokens` | `1024` | Generation length when the client sends none (`num_predict`) |
 | `Chat__MaxTokensLimit` | `4096` | Upper bound for client-requested `maxTokens` |
-| `Chat__AllowRemoteModels` | `false` | Allow Ollama "cloud" models that run on a third-party host |
+| `Chat__AllowRemoteModels` (`CHAT_ALLOW_REMOTE_MODELS`) | `false` | Allow Ollama cloud models (run on ollama.com; see [Ollama cloud models](#ollama-cloud-models-optional)) |
 | `Chat__ModelListCacheDuration` | `00:00:05` | Model list cache |
 | `Auth__MinPasswordLength` | `10` | Minimum password length (max 128) |
 | `Auth__MaxFailedLogins` / `Auth__LockoutDuration` | `5` / `00:05:00` | Failed sign-ins per username before a temporary lockout, and its length |
@@ -369,7 +390,9 @@ Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a G
 | `model_load_failed` | Not enough RAM for that model; use a smaller one or free memory / raise Docker Desktop's memory limit |
 | `provider_timeout` | Generation exceeded `Ollama__InferenceTimeout`; raise it or use a smaller model / lower `maxTokens` |
 | HTTP 429 `too_many_generations` | `Api__MaxConcurrentGenerations` reached; wait or raise the limit |
-| Cloud model listed as "Remote · disabled" | Intentional. Set `Chat__AllowRemoteModels=true` only if you accept third-party inference |
+| Cloud model listed as "Cloud · disabled" | Intentional. Set `CHAT_ALLOW_REMOTE_MODELS=true` only if you accept that prompts are sent to ollama.com |
+| Cloud model fails with "retired by the provider" | Ollama retired it; pull a current one (e.g. `ollama pull gemma4:31b-cloud`) and `ollama rm` the old one |
+| Cloud model fails with "provider_error" | Check `ollama signin` on the Ollama instance the API uses, and your plan's usage limits |
 | `ports are not available ... 8080` | Another process uses the port; set `WEB_PORT` (or `API_PORT`) |
 | API exits at startup with `OptionsValidationException` | A configuration value is invalid; the message names the setting |
 | Documents page says "Embedding model not installed" | `docker compose exec ollama ollama pull nomic-embed-text` (native: `ollama pull nomic-embed-text`), then refresh |
