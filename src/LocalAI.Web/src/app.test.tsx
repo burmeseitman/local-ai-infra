@@ -5,6 +5,7 @@ import { App } from "./app";
 import {
   controlledStream,
   conversation,
+  documentList,
   installFetch,
   json,
   model,
@@ -23,6 +24,7 @@ const REGENERATE = "POST /api/conversations/:id/regenerate/stream";
 function baseRoutes() {
   return {
     "GET /api/auth/state": () => json(signedIn()),
+    "GET /api/documents": () => json(documentList()),
     "GET /api/system/overview": () => json(overview()),
     "GET /api/models": () => json(modelList(MODELS)),
     "GET /api/conversations": () => json({ conversations: [] }),

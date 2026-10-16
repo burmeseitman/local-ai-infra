@@ -47,6 +47,18 @@ public static class ErrorCatalog
         _ => Internal,
     };
 
+    public static ApiError For(DocumentException exception) => exception.Code switch
+    {
+        DocumentErrorCode.NotFound => new(StatusCodes.Status404NotFound, "document_not_found", "Document not found", false),
+        DocumentErrorCode.UnsupportedType => new(StatusCodes.Status415UnsupportedMediaType, "unsupported_document_type", "Unsupported document type", false),
+        DocumentErrorCode.TooLarge => new(StatusCodes.Status413PayloadTooLarge, "document_too_large", "Document too large", false),
+        DocumentErrorCode.NoText => new(StatusCodes.Status422UnprocessableEntity, "document_has_no_text", "No text found", false),
+        DocumentErrorCode.Unreadable => new(StatusCodes.Status422UnprocessableEntity, "document_unreadable", "Document unreadable", false),
+        DocumentErrorCode.EmbeddingModelMissing => new(StatusCodes.Status409Conflict, "embedding_model_missing", "Embedding model missing", false),
+        DocumentErrorCode.LimitReached => new(StatusCodes.Status409Conflict, "document_limit_reached", "Document limit reached", false),
+        _ => Internal,
+    };
+
     public static readonly ApiError Unauthenticated =
         new(StatusCodes.Status401Unauthorized, "unauthenticated", "Sign-in required", false);
 

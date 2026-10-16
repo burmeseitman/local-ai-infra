@@ -25,7 +25,7 @@ export async function deleteConversation(id: string): Promise<void> {
 /** Sends only the new message; the server supplies history and persists both sides. */
 export function streamConversationMessage(
   id: string,
-  body: { model: string; content: string },
+  body: { model: string; content: string; useDocuments?: boolean },
   handlers: StreamHandlers,
   signal: AbortSignal,
 ): Promise<StreamDoneEvent> {
@@ -35,7 +35,7 @@ export function streamConversationMessage(
 /** Replaces the last assistant reply with a new generation. */
 export function streamRegenerate(
   id: string,
-  body: { model: string },
+  body: { model: string; useDocuments?: boolean },
   handlers: StreamHandlers,
   signal: AbortSignal,
 ): Promise<StreamDoneEvent> {

@@ -82,7 +82,7 @@ public sealed class InMemoryConversationStore : IConversationStore
             var now = Tick();
             var stored = new StoredMessage(
                 Guid.NewGuid(), (c.Messages.Count == 0 ? 0 : c.Messages[^1].Sequence) + 1, message.Role, message.Content, message.Status,
-                message.Model, message.ErrorCode, message.ErrorMessage, message.Stats, now);
+                message.Model, message.ErrorCode, message.ErrorMessage, message.Stats, now, message.Sources);
             _items[conversationId] = c with { Messages = [.. c.Messages, stored], UpdatedAt = now };
             return Task.FromResult(stored);
         }

@@ -27,6 +27,13 @@ public sealed class OllamaOptions
     [MaxLength(16)]
     public string? KeepAlive { get; set; }
 
+    /// <summary>
+    /// Context window (num_ctx) requested for chat. Must hold the history plus retrieved
+    /// document passages; larger values use more memory. Null keeps Ollama's default.
+    /// </summary>
+    [Range(512, 262_144)]
+    public int? ContextLength { get; set; } = 8_192;
+
     /// <summary>Largest single NDJSON line accepted from Ollama.</summary>
     [Range(1_024, 16 * 1_024 * 1_024)]
     public int MaxResponseLineBytes { get; set; } = 1_024 * 1_024;

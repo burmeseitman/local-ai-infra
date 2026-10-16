@@ -66,6 +66,24 @@ internal sealed class OllamaGenerationOptions
 {
     public double? Temperature { get; init; }
     public int? NumPredict { get; init; }
+
+    /// <summary>Context window in tokens; Ollama's default is small for document prompts.</summary>
+    public int? NumCtx { get; init; }
+}
+
+internal sealed class OllamaEmbedRequest
+{
+    public required string Model { get; init; }
+    public required IReadOnlyList<string> Input { get; init; }
+
+    /// <summary>Truncate inputs longer than the model's context instead of failing.</summary>
+    public bool Truncate { get; init; } = true;
+    public string? KeepAlive { get; init; }
+}
+
+internal sealed class OllamaEmbedResponse
+{
+    public List<float[]>? Embeddings { get; set; }
 }
 
 internal sealed class OllamaChatChunk

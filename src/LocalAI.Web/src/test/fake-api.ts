@@ -18,6 +18,7 @@ export function model(name: string, overrides: Partial<ModelInfo> = {}): ModelIn
     isRemote: false,
     isAvailable: true,
     isDefault: false,
+    isEmbedding: false,
     ...overrides,
   };
 }
@@ -183,6 +184,7 @@ export function conversation(id: string, title: string, messages: Partial<Stored
       error: null,
       stats: null,
       createdAt: now,
+      sources: null,
       ...m,
     })),
   };
@@ -198,4 +200,27 @@ export function authUser(username = "admin", role: "admin" | "user" = "admin") {
 
 export function signedIn(username = "admin", role: "admin" | "user" = "admin") {
   return { setupRequired: false, user: authUser(username, role) };
+}
+
+export function documentList(documents: Partial<import("../types/api").DocumentInfo>[] = [], embeddingModelInstalled = true) {
+  return {
+    documents: documents.map((d, i) => ({
+      id: `doc-${i}`,
+      title: `Doc ${i}`,
+      fileName: `doc-${i}.pdf`,
+      contentType: "application/pdf",
+      sizeBytes: 2048,
+      characterCount: 1000,
+      chunkCount: 3,
+      status: "ready" as const,
+      error: null,
+      createdAt: "2026-01-01T00:00:00Z",
+      processedAt: "2026-01-01T00:00:05Z",
+      ...d,
+    })),
+    embeddingModel: "nomic-embed-text",
+    embeddingModelInstalled,
+    maxFileBytes: 10 * 1024 * 1024,
+    supportedExtensions: [".pdf", ".txt", ".md", ".markdown"],
+  };
 }

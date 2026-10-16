@@ -94,7 +94,8 @@ internal static class StatusEndpoints
                 m.QuantizationLevel,
                 m.IsRemote,
                 catalog.IsUsable(m),
-                IsDefault(m.Name, defaultModel)))
+                IsDefault(m.Name, defaultModel),
+                m.IsEmbedding))
             .ToArray();
         return new ModelListResponse(provider.Name, dtos, defaultModel, time.GetUtcNow());
     }

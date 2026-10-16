@@ -5,6 +5,8 @@
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Http" />
     <PackageReference Include="Microsoft.Extensions.Options.DataAnnotations" />
+    <!-- PDF text extraction (pure managed, Apache-2.0). -->
+    <PackageReference Include="PdfPig" />
   </ItemGroup>
   <ItemGroup>
     <InternalsVisibleTo Include="LocalAI.Providers.Tests" />

@@ -31,6 +31,16 @@ public static class ServiceCollectionExtensions
         services.TryAddSingleton<ConversationLocks>();
         services.TryAddScoped<ConversationService>();
         services.TryAddSingleton<LoginThrottle>();
+
+        services.AddOptions<RagOptions>()
+            .Bind(configuration.GetSection(RagOptions.SectionName))
+            .ValidateDataAnnotations()
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<RagOptions>, RagOptionsValidator>());
+        services.TryAddSingleton<DocumentIngestionChannel>();
+        services.TryAddScoped<DocumentService>();
+        services.TryAddScoped<DocumentRetriever>();
+        services.AddHostedService<DocumentIngestionWorker>();
         services.TryAddScoped<AccountService>();
         return services;
     }

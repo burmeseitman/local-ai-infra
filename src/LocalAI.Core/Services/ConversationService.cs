@@ -13,8 +13,12 @@ public sealed class ConversationTurn(
     Guid conversationId,
     Guid? userMessageId,
     ChatCompletionRequest request,
-    IDisposable lease) : IDisposable
+    IDisposable lease,
+    IReadOnlyList<MessageSource>? sources = null) : IDisposable
 {
+    /// <summary>Document passages given to the model; null when documents were not used.</summary>
+    public IReadOnlyList<MessageSource>? Sources { get; } = sources;
+
     public Guid ConversationId { get; } = conversationId;
 
     /// <summary>The user message stored for this turn; null when regenerating.</summary>
@@ -36,7 +40,8 @@ public sealed class ConversationService(
     ChatService chat,
     ConversationLocks locks,
     IOptions<ChatOptions> options,
-    ILogger<ConversationService> logger)
+    ILogger<ConversationService> logger,
+    DocumentRetriever? retriever = null)
 {
     public const string DefaultTitle = "New conversation";
     public const int MaxTitleLength = 120;
@@ -78,7 +83,7 @@ public sealed class ConversationService(
     /// validated request containing exactly the new user message.
     /// </summary>
     public async Task<ConversationTurn> BeginTurnAsync(
-        Guid ownerId, Guid conversationId, ChatCompletionRequest userTurn, CancellationToken cancellationToken)
+        Guid ownerId, Guid conversationId, ChatCompletionRequest userTurn, CancellationToken cancellationToken, bool useDocuments = false)
     {
         var userMessage = userTurn.Messages[^1];
         // Ownership first, so another user's busy conversation still reads as "not found".
@@ -91,6 +96,7 @@ public sealed class ConversationService(
 
             // Resolve the model before storing anything, so a bad model leaves no orphan message.
             var prepared = await chat.PrepareAsync(userTurn, cancellationToken);
+            var retrieval = await RetrieveAsync(ownerId, userMessage.Content, useDocuments, cancellationToken);
             var stored = await store.AppendMessageAsync(
                 conversationId, new NewMessage(ChatRole.User, userMessage.Content, MessageStatus.Complete), cancellationToken);
 
@@ -100,7 +106,8 @@ public sealed class ConversationService(
             }
 
             var history = Window([.. conversation.Messages, stored]);
-            return new ConversationTurn(conversationId, stored.Id, prepared with { Messages = history }, lease);
+            return new ConversationTurn(
+                conversationId, stored.Id, prepared with { Messages = WithContext(retrieval, history) }, lease, retrieval?.Sources);
         }
         catch
         {
@@ -111,7 +118,8 @@ public sealed class ConversationService(
 
     /// <summary>Replaces the last assistant reply (if any) with a new generation.</summary>
     public async Task<ConversationTurn> BeginRegenerateAsync(
-        Guid ownerId, Guid conversationId, string model, GenerationOptions generation, CancellationToken cancellationToken)
+        Guid ownerId, Guid conversationId, string model, GenerationOptions generation, CancellationToken cancellationToken,
+        bool useDocuments = false)
     {
         await GetAsync(ownerId, conversationId, cancellationToken);
         var lease = locks.Acquire(conversationId);
@@ -128,12 +136,14 @@ public sealed class ConversationService(
             }
 
             var prepared = await chat.PrepareAsync(new ChatCompletionRequest(model, [], generation), cancellationToken);
+            var retrieval = await RetrieveAsync(ownerId, remaining[^1].Content, useDocuments, cancellationToken);
             if (replaced is not null)
             {
                 await store.DeleteMessageAsync(conversationId, replaced.Id, cancellationToken);
             }
 
-            return new ConversationTurn(conversationId, null, prepared with { Messages = Window(remaining) }, lease);
+            return new ConversationTurn(
+                conversationId, null, prepared with { Messages = WithContext(retrieval, Window(remaining)) }, lease, retrieval?.Sources);
         }
         catch
         {
@@ -167,21 +177,21 @@ public sealed class ConversationService(
             catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
             {
                 await SaveReplyAsync(turn, new NewMessage(
-                    ChatRole.Assistant, content.ToString(), MessageStatus.Stopped, turn.Request.Model));
+                    ChatRole.Assistant, content.ToString(), MessageStatus.Stopped, turn.Request.Model, Sources: turn.Sources));
                 throw;
             }
             catch (InferenceException ex)
             {
                 await SaveReplyAsync(turn, new NewMessage(
                     ChatRole.Assistant, content.ToString(), MessageStatus.Error, turn.Request.Model,
-                    InferenceMetrics.ToCode(ex.Code), ex.Message));
+                    InferenceMetrics.ToCode(ex.Code), ex.Message, Sources: turn.Sources));
                 throw;
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
                 await SaveReplyAsync(turn, new NewMessage(
                     ChatRole.Assistant, content.ToString(), MessageStatus.Error, turn.Request.Model,
-                    "internal_error", "An unexpected error occurred."));
+                    "internal_error", "An unexpected error occurred.", Sources: turn.Sources));
                 throw;
             }
 
@@ -189,7 +199,7 @@ public sealed class ConversationService(
             if (chunk.IsFinal)
             {
                 await SaveReplyAsync(turn, new NewMessage(
-                    ChatRole.Assistant, content.ToString(), MessageStatus.Complete, turn.Request.Model, Stats: chunk.Stats));
+                    ChatRole.Assistant, content.ToString(), MessageStatus.Complete, turn.Request.Model, Stats: chunk.Stats, Sources: turn.Sources));
             }
 
             yield return chunk;
@@ -212,6 +222,27 @@ public sealed class ConversationService(
 
         return trimmed.Length <= MaxTitleLength ? trimmed : trimmed[..MaxTitleLength];
     }
+
+    private async Task<(IReadOnlyList<MessageSource> Sources, ChatMessage Context)?> RetrieveAsync(
+        Guid ownerId, string question, bool useDocuments, CancellationToken cancellationToken)
+    {
+        if (!useDocuments)
+        {
+            return null;
+        }
+
+        if (retriever is null)
+        {
+            throw new InvalidOperationException("Document retrieval is not configured.");
+        }
+
+        return await retriever.BuildContextAsync(ownerId, question, cancellationToken);
+    }
+
+    /// <summary>The retrieval system message goes first; it is never stored as a conversation message.</summary>
+    private static IReadOnlyList<ChatMessage> WithContext(
+        (IReadOnlyList<MessageSource> Sources, ChatMessage Context)? retrieval, IReadOnlyList<ChatMessage> history) =>
+        retrieval is { Context: var context } ? [context, .. history] : history;
 
     private IReadOnlyList<ChatMessage> Window(IEnumerable<StoredMessage> messages) =>
         HistoryWindow.Select(messages, options.Value.MaxMessages, options.Value.MaxConversationLength);

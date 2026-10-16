@@ -12,7 +12,7 @@ It has three parts:
 
 No cloud AI service, API key, or paid dependency is required.
 
-**Status:** Phase 1 (platform) is complete. Phase 2 so far: server-side **conversation history** (SQLite) and **local accounts** (login, roles, per-user conversations). Model admin and monitoring are next (see [Roadmap](#roadmap)).
+**Status:** Phase 1 (platform) is complete. Phase 2 so far: server-side **conversation history** and **local accounts**. Phase 3 has started with **chat with your documents** (local RAG with citations) and a **native-Ollama mode** that uses the Apple GPU (see [Roadmap](#roadmap)).
 
 ```
 Browser ──► React dashboard (nginx) ──/api──► ASP.NET Core API ──► IChatProvider ──► Ollama ──► local model
@@ -40,6 +40,12 @@ Browser ──► React dashboard (nginx) ──/api──► ASP.NET Core API �
 
 What Phase 1 delivers:
 
+- **Chat with your documents (Phase 3).**
+  - **Your library:** upload PDF, TXT, or Markdown files (up to 10 MB) on the **Documents** page. Each user's documents are private.
+  - **Indexing:** text is extracted on the server, split into overlapping chunks, and embedded in the background by a local embedding model (`nomic-embed-text` via Ollama). Status shows as *Indexing… → Ready / Failed*.
+  - **Asking:** turn on **Use my documents** in Chat. The API finds the most relevant passages and has the model answer with inline citations `[1]`, then shows the sources (title, PDF page, snippet) under the reply. Sources are saved with the conversation.
+  - **When nothing matches:** the model says so and answers from general knowledge.
+  - **Privacy:** nothing leaves the machine.
 - **Local accounts (Phase 2).**
   - **First run:** the dashboard asks you to create the administrator. There is no default password and no public sign-up; the administrator creates the other users.
   - **Isolation:** each user sees only their own conversations, and another user's conversation reads as "not found".
@@ -96,6 +102,7 @@ The browser never talks to Ollama. All inference goes through the API, which own
 | Layer | Technology |
 |---|---|
 | Auth | ASP.NET Core cookie authentication + authorization (fallback policy: authenticated), `PasswordHasher` from `Microsoft.Extensions.Identity.Core` 8.0, Data Protection keys persisted to the data volume |
+| Documents (RAG) | PdfPig 0.1.16 (PDF text, Apache-2.0), Ollama `/api/embed` with `nomic-embed-text`, exact cosine search with `System.Numerics.Tensors` (SIMD) over vectors stored in SQLite |
 | Persistence | SQLite via EF Core 8.0 (`Microsoft.EntityFrameworkCore.Sqlite`), code-first migrations, WAL mode |
 | Backend | .NET 8 (LTS), ASP.NET Core minimal APIs, C# 12 with nullable reference types, `IHttpClientFactory`, options validation, built-in rate limiting, Swashbuckle 6.9 (Swagger) |
 | Tests (backend) | xUnit 2.9, `Microsoft.AspNetCore.Mvc.Testing` 8.0 |
@@ -132,11 +139,13 @@ A GPU is **not** required. Small models run on CPU.
 │   │   ├── Interfaces/IChatProvider.cs
 │   │   ├── Models/                  # chat + model records
 │   │   ├── Exceptions/InferenceException.cs
-│   │   └── Services/                # ChatService, ConversationService, HistoryWindow,
+│   │   └── Services/                # DocumentService, DocumentIngestionWorker, DocumentRetriever,
+│   │                                # TextChunker, AccountService, ChatService, ConversationService, HistoryWindow,
 │   │                                # ModelCatalog, ChatRequestValidator, ProviderStatusService,
 │   │                                # InferenceMetrics, ConversationLocks, ChatOptions
 │   ├── LocalAI.Providers/
-│   │   └── Ollama/                  # OllamaClient, OllamaProvider, OllamaOptions,
+│   │   ├── Documents/               # PDF (PdfPig) and plain-text extractors
+│   │   └── Ollama/                  # OllamaClient (chat + /api/embed), OllamaProvider, OllamaOptions,
 │   │                                # OllamaModels (wire DTOs), NdjsonLineReader
 │   ├── LocalAI.Persistence/         # EF Core DbContext, SqliteConversationStore, Migrations/
 │   ├── LocalAI.Api/
@@ -156,7 +165,7 @@ A GPU is **not** required. Small models run on CPU.
 │   └── Shared/                      # FakeChatProvider, InMemoryConversationStore
 ├── infrastructure/
 │   ├── docker/                      # api.Dockerfile, web.Dockerfile, nginx.conf
-│   └── compose/                     # optional GPU and Ollama-port overlays
+│   └── compose/                     # optional overlays: NVIDIA GPU, native Ollama (Apple GPU), Ollama port
 └── docs/                            # architecture.md, api.md, development.md
 ```
 
@@ -222,13 +231,32 @@ curl -s http://127.0.0.1:5080/api/models        # the API now lists it
 curl -s http://127.0.0.1:5080/api/health/ready  # "ready" (HTTP 200)
 ```
 
-Then refresh the model list in the dashboard (or wait up to 30 s) and start chatting.
+Then refresh the model list in the dashboard (or wait up to 30 s) and start chatting. For **document chat**, also install the embedding model (~270 MB) once:
 
-| Model | Download | Notes |
-|---|---|---|
-| `qwen2.5:0.5b` | ~400 MB | Default. Runs comfortably on CPU with 8 GB RAM; quality is basic |
-| `llama3.2:1b` | ~1.3 GB | Better quality, still CPU-friendly |
-| `qwen2.5:3b` / `llama3.2:3b` | ~2 GB | Needs ~6–8 GB free RAM; noticeably slower on CPU |
+```bash
+docker compose exec ollama ollama pull nomic-embed-text
+```
+
+Measured on an Apple M3 Pro with 18 GB of RAM, same prompt:
+
+| Model | Where | Download | Speed | Quality |
+|---|---|---|---|---|
+| `qwen2.5:0.5b` | Docker (CPU) | ~400 MB | ~54 tok/s | Fast, but unreliable answers |
+| `qwen2.5:3b` | Docker (CPU) | ~1.9 GB | ~7 tok/s | **Default.** Sensible answers; the smallest model that handles document Q&A well |
+| `qwen2.5:7b` | **Native Ollama (Apple GPU)** | ~4.7 GB | **~28 tok/s** | Best of the three, and the fastest. Recommended on a Mac |
+
+### Native Ollama (Apple GPU)
+
+Docker Desktop on macOS can't give containers the GPU, so the bundled Ollama runs on CPU. For the best experience on a Mac, run Ollama natively and let the containers use it:
+
+```bash
+brew install ollama          # or the installer from ollama.com; then start it
+ollama pull qwen2.5:7b
+ollama pull nomic-embed-text
+docker compose -f docker-compose.yml -f infrastructure/compose/docker-compose.native-ollama.yml up -d web
+```
+
+`up -d web` starts only `web` and `api`; the bundled `ollama` container isn't needed. The API reaches the host through `host.docker.internal`, which works with Ollama's default `127.0.0.1` binding on Docker Desktop. Models then live in `~/.ollama` on the host. On Linux, see the comments in that file before changing Ollama's listen address.
 
 `Chat__DefaultModel` (`OLLAMA_DEFAULT_MODEL` in `.env`) only sets the *preferred* model. It is used only if actually installed; otherwise the first installed local model is selected.
 
@@ -257,6 +285,11 @@ Configuration uses standard ASP.NET Core sources: `appsettings.json`, then `apps
 | `Session__SecureCookie` | `false` | Mark the cookie `Secure`; **set `true` when served over HTTPS** |
 | `Session__CookieName` | `localai.session` | Cookie name |
 | `Session__KeysDirectory` | `data/keys` (compose: `/app/data/keys`) | Data Protection keys that sign session cookies |
+| `Ollama__ContextLength` | `8192` | Context window (`num_ctx`) requested for chat. It must hold the history plus retrieved passages; larger values use more RAM |
+| `Rag__EmbeddingModel` | `nomic-embed-text` | Embedding model for documents (never auto-downloaded). Changing it requires re-uploading documents |
+| `Rag__ChunkSize` / `Rag__ChunkOverlap` | `1000` / `150` | Characters per passage, and the overlap between neighbouring passages |
+| `Rag__TopK` / `Rag__MinScore` | `5` / `0.5` | Passages per question, and the minimum cosine similarity (tuned for `nomic-embed-text`) |
+| `Rag__MaxFileBytes` / `Rag__MaxDocumentCharacters` / `Rag__MaxDocumentsPerUser` | 10 MB / 2,000,000 / 200 | Upload limits |
 | `Persistence__ConnectionString` | `Data Source=data/localai.db` (compose: `/app/data/localai.db`) | SQLite file; relative paths resolve against the API content root |
 | `Api__CorsAllowedOrigins` | `[]` | Explicit origins only; wildcards rejected. Not needed with the proxy |
 | `Api__MaxRequestBodyBytes` | `262144` | Request body limit (HTTP 413 above it) |
@@ -283,20 +316,22 @@ Compose maps the friendlier names in [.env.example](.env.example) (for example `
 | POST | `/api/auth/setup` · `/api/auth/login` · `/api/auth/logout` | Create the first admin (once) · sign in · sign out |
 | POST | `/api/auth/password` | Change your own password (signs out your other sessions) |
 | GET / POST · PATCH / DELETE | `/api/users` · `/api/users/{id}` | **Admin only:** list and create users · change role or reset password, delete (with their conversations) |
+| GET / POST | `/api/documents` | **Your** documents with indexing status, and whether the embedding model is installed / upload a file (multipart `file`, 202 + background indexing) |
+| GET / DELETE | `/api/documents/{id}` | One document / delete it with its passages |
 | GET | `/api/conversations` | **Your** conversations, most recently updated first |
 | POST | `/api/conversations` | Create a conversation |
 | GET / PATCH / DELETE | `/api/conversations/{id}` | Read with messages / rename / delete |
-| POST | `/api/conversations/{id}/messages/stream` | Send **only the new message**; SSE reply; both sides stored |
+| POST | `/api/conversations/{id}/messages/stream` | Send **only the new message** (`useDocuments: true` grounds it in your documents); SSE reply with a `sources` event; both sides stored |
 | POST | `/api/conversations/{id}/regenerate/stream` | Replace the last reply with a new streamed generation |
 
-Everything except `/api/health*` and the anonymous `/api/auth/*` endpoints requires a session; without one the API answers 401 `unauthenticated`. Full contracts, the SSE event schema, and error codes are in [docs/api.md](docs/api.md).
+Everything except `/api/health*` and the anonymous `/api/auth/*` endpoints requires a session; without one the API answers 401 `unauthenticated`. **Every state-changing request (POST/PATCH/DELETE) must send the header `X-LocalAI-Request: 1`** (CSRF protection); without it the API answers 403 `missing_request_header`. Full contracts, the SSE event schema, and error codes are in [docs/api.md](docs/api.md).
 
 ```bash
 # Sign in once and keep the session cookie in a jar (you are prompted for the password).
 read -rs -p "Password: " PW; echo
-curl -s -c jar -X POST http://127.0.0.1:5080/api/auth/login -H 'Content-Type: application/json' \
+curl -s -c jar -X POST -H 'X-LocalAI-Request: 1' http://127.0.0.1:5080/api/auth/login -H 'Content-Type: application/json' \
   -d "{\"username\":\"admin\",\"password\":\"$PW\"}" >/dev/null
-curl -N -b jar -X POST http://127.0.0.1:5080/api/chat/stream \
+curl -N -b jar -X POST -H 'X-LocalAI-Request: 1' http://127.0.0.1:5080/api/chat/stream \
   -H 'Content-Type: application/json' \
   -d '{"model":"qwen2.5:0.5b","messages":[{"role":"user","content":"Hello!"}]}'
 ```
@@ -305,11 +340,11 @@ curl -N -b jar -X POST http://127.0.0.1:5080/api/chat/stream \
 
 | Suite | Command | Count |
 |---|---|---|
-| Backend, all (authoritative, real .NET 8 SDK in Docker) | `docker build -f infrastructure/docker/api.Dockerfile --target test .` | 173 |
-| Backend, local | `dotnet test LocalAI.sln` (needs the .NET 8 runtime; see below) | 173 |
-| Frontend | `cd src/LocalAI.Web && npm test` | 34 |
+| Backend, all (authoritative, real .NET 8 SDK in Docker) | `docker build -f infrastructure/docker/api.Dockerfile --target test .` | 225 |
+| Backend, local | `dotnet test LocalAI.sln` (needs the .NET 8 runtime; see below) | 225 |
+| Frontend | `cd src/LocalAI.Web && npm test` | 42 |
 | Frontend lint / types | `npm run lint && npm run typecheck` | — |
-| Frontend, in Docker | `docker build -f infrastructure/docker/web.Dockerfile --target test .` | 34 |
+| Frontend, in Docker | `docker build -f infrastructure/docker/web.Dockerfile --target test .` | 42 |
 
 Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a GPU, or a downloaded model. Persistence tests use a real in-memory SQLite database with the real migrations, and API tests use a temporary SQLite file per test class.
 
@@ -337,6 +372,10 @@ Tests use a fake provider or a stubbed HTTP handler. They never need Ollama, a G
 | Cloud model listed as "Remote · disabled" | Intentional. Set `Chat__AllowRemoteModels=true` only if you accept third-party inference |
 | `ports are not available ... 8080` | Another process uses the port; set `WEB_PORT` (or `API_PORT`) |
 | API exits at startup with `OptionsValidationException` | A configuration value is invalid; the message names the setting |
+| Documents page says "Embedding model not installed" | `docker compose exec ollama ollama pull nomic-embed-text` (native: `ollama pull nomic-embed-text`), then refresh |
+| A document shows **Failed** | The reason is shown under the status. Common ones: a scanned PDF (no text layer, OCR is not supported), a password-protected PDF, or Ollama was down while indexing (delete and upload again) |
+| Answers ignore the documents | Make sure **Use my documents** is on and the document is **Ready**. If the question shares few words or concepts with the text, no passage passes `Rag__MinScore`; rephrasing helps |
+| Slow answers in Docker on a Mac | Expected on CPU (~7 tok/s for `qwen2.5:3b`). Use [native Ollama](#native-ollama-apple-gpu) (~28 tok/s for `qwen2.5:7b`) |
 | Forgot the administrator password | Another admin can reset it on the Users page. If you are the only admin: `docker compose stop api`, then `docker run --rm -v local-ai-infrastructure_api-data:/d alpine sh -c 'apk add -q sqlite && sqlite3 /d/localai.db "UPDATE conversations SET OwnerId = NULL; DELETE FROM users;"'`, then `docker compose start api`. All accounts are removed, the next visit shows first-run setup, and the new administrator receives **all** existing conversations. |
 | Signed out after every API restart | The keys directory is not persisted; keep `Session__KeysDirectory` on the `api-data` volume |
 | HTTP 429 `too_many_attempts` on sign-in | Too many wrong passwords for that username; wait for the lockout (default 5 minutes) |
@@ -349,6 +388,11 @@ Logs: `docker compose logs -f api` (prompts and responses are never logged; only
 
 ## Known limitations
 
+- **Document chat:**
+  - Search is exact and in memory. It's fast for thousands of passages per user; for very large libraries, a vector database (pgvector or Qdrant) is the next step.
+  - Scanned PDFs aren't OCR'd, and DOCX isn't supported yet.
+  - The relevance threshold is tuned for `nomic-embed-text`.
+- **Prompt injection from documents:** document text is treated as untrusted data and the model is told to ignore instructions inside it, but a small local model can still be influenced. Don't index documents you don't trust.
 - **No TLS.** The cookie travels over plain HTTP unless you put the dashboard behind HTTPS and set `Session__SecureCookie=true`.
 - No MFA, password-reset email, or SSO. Login throttling is per username and in memory, so it resets when the API restarts.
 - Conversations, password hashes, and session keys are stored unencrypted on the `api-data` volume; protect the host.
@@ -374,6 +418,10 @@ Implemented defaults:
 - CORS is off by default; explicit origins only, and wildcards are rejected.
 - Model output is untrusted. Raw HTML is not rendered, `javascript:` links are stripped, and **images in model output are not loaded**, which prevents data exfiltration through crafted image URLs. nginx sends a strict Content Security Policy.
 - Prompts and responses are not logged, including SQL parameters (EF Core sensitive-data logging stays off). Passwords are never logged or returned.
+- **CSRF:**
+  - **The gap:** `SameSite=Strict` treats every port on `localhost` as the same site, and HTML forms can still post multipart or urlencoded bodies cross-origin.
+  - **The fix:** every state-changing API request must carry the `X-LocalAI-Request` header. Browsers can't add custom headers to cross-origin requests without a CORS preflight, which the API doesn't grant.
+- **Uploads:** only the upload endpoint gets the larger body limit (10 MB). The real size is enforced while reading (a client-declared length isn't trusted), and extracted text is capped too.
 - **Authentication by default:**
   - Every API endpoint requires a session (fallback authorization policy) except health probes and the sign-in endpoints. User management is admin-only.
   - Session cookies are HttpOnly and `SameSite=Strict`, which also blocks cross-site request forgery. The API accepts only JSON bodies, and CORS is off.
@@ -395,5 +443,10 @@ Never publish Ollama's port: it has no authentication. Running in Docker does no
   - ✅ Local-account authentication with admin/user roles and per-user conversations.
   - ⏭ Model pull/delete through an authenticated admin API with progress and an audit log.
   - ⏭ OpenTelemetry metrics and structured logs with Prometheus/Grafana dashboards.
-- **Phase 3 — retrieval and multiple providers:** a RAG pipeline with a vector store (e.g. Qdrant/pgvector), document ingestion, and additional `IChatProvider` implementations (llama.cpp server, vLLM, OpenAI-compatible endpoints) with per-model routing.
+- **Phase 3 — retrieval and multiple providers:**
+  - ✅ Document chat: local RAG with citations, PDF/TXT/MD ingestion, and background indexing.
+  - ✅ Native-Ollama mode (Apple GPU) and measured model guidance.
+  - ⏭ OCR for scanned PDFs and DOCX support.
+  - ⏭ A vector database for large libraries.
+  - ⏭ Additional `IChatProvider` implementations (llama.cpp server, vLLM, OpenAI-compatible endpoints) with per-model routing.
 - **Phase 4 — scale and performance:** GPU scheduling and multiple inference nodes, Kubernetes deployment, request queuing and autoscaling, load and latency benchmarking, and evaluation harnesses.

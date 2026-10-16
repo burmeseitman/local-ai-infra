@@ -15,7 +15,8 @@ public sealed record ModelDto(
     string? QuantizationLevel,
     bool IsRemote,
     bool IsAvailable,
-    bool IsDefault);
+    bool IsDefault,
+    bool IsEmbedding);
 
 public sealed record ModelListResponse(
     string Provider,

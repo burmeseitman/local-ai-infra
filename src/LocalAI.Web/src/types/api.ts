@@ -58,6 +58,7 @@ export interface ModelInfo {
   isRemote: boolean;
   isAvailable: boolean;
   isDefault: boolean;
+  isEmbedding: boolean;
 }
 
 export interface ModelListResponse {
@@ -150,6 +151,7 @@ export interface StoredMessage {
   error: { code: string; message: string | null } | null;
   stats: CompletionStats | null;
   createdAt: string;
+  sources: MessageSource[] | null;
 }
 
 export interface ConversationSummary {
@@ -182,4 +184,37 @@ export interface AuthUser {
 export interface AuthState {
   setupRequired: boolean;
   user: AuthUser | null;
+}
+
+export interface MessageSource {
+  number: number;
+  documentId: string;
+  title: string;
+  page: number | null;
+  snippet: string;
+  score: number;
+}
+
+export type DocumentStatus = "processing" | "ready" | "failed";
+
+export interface DocumentInfo {
+  id: string;
+  title: string;
+  fileName: string;
+  contentType: string;
+  sizeBytes: number;
+  characterCount: number;
+  chunkCount: number;
+  status: DocumentStatus;
+  error: string | null;
+  createdAt: string;
+  processedAt: string | null;
+}
+
+export interface DocumentListResponse {
+  documents: DocumentInfo[];
+  embeddingModel: string;
+  embeddingModelInstalled: boolean;
+  maxFileBytes: number;
+  supportedExtensions: string[];
 }

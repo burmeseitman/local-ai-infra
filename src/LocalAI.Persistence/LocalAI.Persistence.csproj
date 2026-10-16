@@ -4,6 +4,8 @@
   </ItemGroup>
   <ItemGroup>
     <PackageReference Include="Microsoft.EntityFrameworkCore.Sqlite" />
+    <!-- SIMD cosine similarity for in-process vector search. -->
+    <PackageReference Include="System.Numerics.Tensors" />
     <!-- Design-time only (migrations); not shipped. -->
     <PackageReference Include="Microsoft.EntityFrameworkCore.Design" PrivateAssets="all" />
   </ItemGroup>

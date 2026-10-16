@@ -2,7 +2,7 @@ import { CopyButton } from "../../components/copy-button";
 
 /** Explains how to install a model; the app itself never downloads models. */
 export function NoModelsHelp({ suggested }: { suggested: string | null }) {
-  const model = suggested ?? "qwen2.5:0.5b";
+  const model = suggested ?? "qwen2.5:3b";
   const command = `docker compose exec ollama ollama pull ${model}`;
   return (
     <div className="help">
@@ -22,8 +22,8 @@ export function NoModelsHelp({ suggested }: { suggested: string | null }) {
         ) : (
           <>No default model is configured.</>
         )}{" "}
-        Small models such as <code>qwen2.5:0.5b</code> (~400 MB) or <code>llama3.2:1b</code> (~1.3 GB) run on CPU-only
-        machines with 8 GB RAM. When running Ollama natively, use <code>ollama pull {model}</code>. Then refresh the
+        <code>qwen2.5:3b</code> (~1.9 GB) runs on CPU-only machines with 8 GB RAM; <code>qwen2.5:0.5b</code> (~400 MB) is
+        faster but much less reliable. On a Mac, native Ollama with <code>qwen2.5:7b</code> uses the GPU and is faster still. When running Ollama natively, use <code>ollama pull {model}</code>. Then refresh the
         model list.
       </p>
     </div>

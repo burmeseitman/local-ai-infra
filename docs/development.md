@@ -12,6 +12,8 @@ ollama pull qwen2.5:0.5b
 curl http://localhost:11434/api/version
 ```
 
+For document chat, also run `ollama pull nomic-embed-text` (~270 MB).
+
 **Option B: the compose container, published on loopback port 11435** (avoids clashing with a native Ollama on 11434):
 
 ```bash
@@ -52,9 +54,9 @@ Smoke test (`-c`/`-b` keep the session cookie):
 ```bash
 curl -s localhost:5080/api/health/ready | jq
 read -rs -p "Admin password: " PW; echo
-curl -s -c jar -X POST localhost:5080/api/auth/login -H 'Content-Type: application/json' \
+curl -s -c jar -X POST -H 'X-LocalAI-Request: 1' localhost:5080/api/auth/login -H 'Content-Type: application/json' \
   -d "{\"username\":\"admin\",\"password\":\"$PW\"}"
-curl -N -b jar -X POST localhost:5080/api/chat/stream -H 'Content-Type: application/json' \
+curl -N -b jar -X POST -H 'X-LocalAI-Request: 1' localhost:5080/api/chat/stream -H 'Content-Type: application/json' \
   -d '{"model":"qwen2.5:0.5b","messages":[{"role":"user","content":"Say hi"}]}'
 ```
 
@@ -90,7 +92,7 @@ Code layout (`src/`):
 | `features/chat/` | Reducers (`chat-state.ts`), `useConversation` (server-backed chat), message list and item, composer |
 | `features/conversations/` | History panel: list, select, inline rename, two-step delete |
 | `features/auth/` | `useAuth` (session state; any `unauthenticated` response signs the UI out) and the setup/sign-in screen |
-| `pages/` | Also `users-page` (admin) and `account-page` (change password) |
+| `pages/` | Also `users-page` (admin), `account-page` (change password), and `documents-page` (upload and indexing status) |
 | `features/models/` | Selection logic, selector, install help |
 | `features/system/` | Health-layer derivation and the sidebar status |
 | `hooks/` | `useAsyncResource` (load + poll + keep last good data) and the hash router |
@@ -98,6 +100,15 @@ Code layout (`src/`):
 | `components/` | Markdown (sanitized), status dot, notices, icons, copy button |
 
 ## 4. Everything in Docker
+
+On a Mac, prefer **native Ollama + containers for web and api**. It's about 4× faster, because the GPU is used:
+
+```bash
+ollama pull qwen2.5:7b && ollama pull nomic-embed-text
+docker compose -f docker-compose.yml -f infrastructure/compose/docker-compose.native-ollama.yml up -d web
+```
+
+Fully containerized (CPU only on a Mac):
 
 ```bash
 docker compose up -d --build
@@ -125,5 +136,6 @@ docker compose down          # keeps models; add -v to delete the ollama-models 
 
 - C#: file-scoped namespaces, nullable enabled, analyzers at `8.0-recommended`, warnings are errors.
 - TypeScript: strict mode plus `noUncheckedIndexedAccess`, kebab-case file names, double quotes, semicolons, and ESLint with the React Hooks (compiler) rules.
-- Never log prompt or response content. Log the model, sizes, durations, and error codes.
+- Every state-changing `fetch` must include `CSRF_HEADERS` from `api/http.ts`; the API rejects it otherwise.
+- Never log prompt, response, or document content. Log the model, sizes, durations, and error codes.
 - New provider: implement `IChatProvider` in `LocalAI.Providers/<Name>/` and add an `Add<Name>Provider` extension. See the contract in [architecture.md](architecture.md#provider-abstraction).

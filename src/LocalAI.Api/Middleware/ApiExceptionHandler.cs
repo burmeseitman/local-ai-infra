@@ -56,6 +56,12 @@ internal sealed class ApiExceptionHandler(
                 logger.LogInformation("Request {Path} rejected: {Code}", httpContext.Request.Path, error.Code);
                 break;
 
+            case DocumentException document:
+                error = ErrorCatalog.For(document);
+                detail = document.Message;
+                logger.LogInformation("Request {Path} rejected: {Code}", httpContext.Request.Path, error.Code);
+                break;
+
             case BadHttpRequestException badRequest:
                 var tooLarge = badRequest.StatusCode == StatusCodes.Status413PayloadTooLarge;
                 error = new ApiError(

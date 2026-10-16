@@ -1,5 +1,6 @@
 import { useCallback, useState } from "react";
 import { deleteConversation, listConversations, renameConversation } from "./api/conversations";
+import { listDocuments } from "./api/documents";
 import { fetchModels, fetchOverview } from "./api/endpoints";
 import { useConversation } from "./features/chat/use-conversation";
 import { pickModel, readStoredModel, storeModel } from "./features/models/model-selection";
@@ -8,6 +9,7 @@ import { useAsyncResource } from "./hooks/use-async-resource";
 import { useHashRoute } from "./hooks/use-hash-route";
 import { AppLayout } from "./layouts/app-layout";
 import { ChatPage, type HistoryActions } from "./pages/chat-page";
+import { DocumentsPage } from "./pages/documents-page";
 import { ModelsPage } from "./pages/models-page";
 import { SystemPage } from "./pages/system-page";
 import { AccountPage } from "./pages/account-page";
@@ -21,13 +23,40 @@ interface DashboardProps {
 
 const OVERVIEW_POLL_MS = 10_000;
 const MODELS_POLL_MS = 30_000;
+const DOCUMENTS_POLL_MS = 4_000;
 const FALLBACK_MAX_MESSAGE_LENGTH = 8_000;
+const USE_DOCUMENTS_KEY = "localai.useDocuments";
+
+function readFlag(key: string): boolean {
+  try {
+    return window.localStorage.getItem(key) === "true";
+  } catch {
+    return false;
+  }
+}
+
+function writeFlag(key: string, value: boolean): void {
+  try {
+    window.localStorage.setItem(key, String(value));
+  } catch {
+    // preference simply won't persist
+  }
+}
 
 export function Dashboard({ user, onSignOut }: DashboardProps) {
   const [location, navigate] = useHashRoute();
   const overview = useAsyncResource(useCallback((_force: boolean, signal: AbortSignal) => fetchOverview(signal), []), OVERVIEW_POLL_MS);
   const models = useAsyncResource(useCallback((force: boolean, signal: AbortSignal) => fetchModels(force, signal), []), MODELS_POLL_MS);
   const conversations = useAsyncResource(useCallback((_force: boolean, signal: AbortSignal) => listConversations(signal), []));
+  // Polled so indexing progress (processing → ready) shows up without a manual refresh.
+  const documents = useAsyncResource(useCallback((_force: boolean, signal: AbortSignal) => listDocuments(signal), []), DOCUMENTS_POLL_MS);
+  const readyDocuments = documents.data?.documents.filter((d) => d.status === "ready").length ?? 0;
+  const [useDocumentsPreference, setUseDocumentsPreference] = useState(() => readFlag(USE_DOCUMENTS_KEY));
+  const useDocuments = useDocumentsPreference && readyDocuments > 0;
+  const toggleDocuments = useCallback((value: boolean) => {
+    setUseDocumentsPreference(value);
+    writeFlag(USE_DOCUMENTS_KEY, value);
+  }, []);
 
   const [preferredModel, setPreferredModel] = useState<string | null>(readStoredModel);
   // Derived, never stored: only a model that is actually installed and usable can be selected.
@@ -41,6 +70,7 @@ export function Dashboard({ user, onSignOut }: DashboardProps) {
   const chat = useConversation({
     conversationId: location.chatId,
     model: selectedModel,
+    useDocuments,
     onCreated: useCallback((id: string) => navigate(`chat/${id}`), [navigate]),
     onChanged: useCallback(() => void reloadConversations(), [reloadConversations]),
   });
@@ -83,8 +113,10 @@ export function Dashboard({ user, onSignOut }: DashboardProps) {
           onSelectModel={selectModel}
           status={status}
           maxMessageLength={maxMessageLength}
+          documents={{ ready: readyDocuments, enabled: useDocuments, onToggle: toggleDocuments }}
         />
       )}
+      {location.route === "documents" && <DocumentsPage documents={documents} />}
       {location.route === "models" && (
         <ModelsPage
           models={models}

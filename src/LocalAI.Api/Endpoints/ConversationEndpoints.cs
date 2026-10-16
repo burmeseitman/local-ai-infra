@@ -110,8 +110,9 @@ internal static class ConversationEndpoints
             return ValidationFailed(validation);
         }
 
-        var turn = await conversations.BeginTurnAsync(context.User.GetUserId(), id, validation.Request!, cancellationToken);
-        return new ChatStreamResult(turn.Request.Model, ct => conversations.StreamTurnAsync(turn, ct), id, turn);
+        var turn = await conversations.BeginTurnAsync(
+            context.User.GetUserId(), id, validation.Request!, cancellationToken, body.UseDocuments);
+        return new ChatStreamResult(turn.Request.Model, ct => conversations.StreamTurnAsync(turn, ct), id, turn, turn.Sources);
     }
 
     private static async Task<IResult> RegenerateAsync(
@@ -129,8 +130,9 @@ internal static class ConversationEndpoints
         }
 
         var request = validation.Request!;
-        var turn = await conversations.BeginRegenerateAsync(context.User.GetUserId(), id, request.Model, request.Options, cancellationToken);
-        return new ChatStreamResult(turn.Request.Model, ct => conversations.StreamTurnAsync(turn, ct), id, turn);
+        var turn = await conversations.BeginRegenerateAsync(
+            context.User.GetUserId(), id, request.Model, request.Options, cancellationToken, body.UseDocuments);
+        return new ChatStreamResult(turn.Request.Model, ct => conversations.StreamTurnAsync(turn, ct), id, turn, turn.Sources);
     }
 
     private static ValidationProblem ValidationFailed(ChatValidationResult validation) =>

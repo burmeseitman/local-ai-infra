@@ -1,0 +1,24 @@
+# Use Ollama installed natively on the host instead of the bundled container.
+#
+# Why: on macOS, containers cannot use the Apple GPU, so the bundled Ollama runs on CPU.
+# Native Ollama uses Metal and is several times faster, which makes 7B+ models practical.
+#
+#   ollama pull qwen2.5:7b                      # on the host
+#   docker compose -f docker-compose.yml -f infrastructure/compose/docker-compose.native-ollama.yml up -d web
+#
+# `up -d web` starts web + api only; the bundled ollama container is not needed.
+# Models then live in the host's ~/.ollama, not in the ollama-models volume.
+#
+# Docker Desktop (macOS/Windows) forwards host.docker.internal to the host, including
+# services bound to 127.0.0.1, so Ollama's default listen address works unchanged.
+# On Linux, Ollama must listen on an address the docker bridge can reach
+# (e.g. OLLAMA_HOST=172.17.0.1:11434) — never 0.0.0.0 on an untrusted network: Ollama
+# has no authentication.
+services:
+  api:
+    depends_on: !reset {}
+    environment:
+      Ollama__BaseUrl: http://host.docker.internal:${NATIVE_OLLAMA_PORT:-11434}
+      Chat__DefaultModel: ${NATIVE_OLLAMA_DEFAULT_MODEL:-qwen2.5:7b}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"

@@ -13,6 +13,10 @@ internal sealed class LocalAiDbContext(DbContextOptions<LocalAiDbContext> option
 
     public DbSet<MessageEntity> Messages => Set<MessageEntity>();
 
+    public DbSet<DocumentEntity> Documents => Set<DocumentEntity>();
+
+    public DbSet<ChunkEntity> Chunks => Set<ChunkEntity>();
+
     protected override void ConfigureConventions(ModelConfigurationBuilder configurationBuilder)
     {
         // SQLite cannot order or compare DateTimeOffset stored as text; store UTC ticks instead.
@@ -34,6 +38,37 @@ internal sealed class LocalAiDbContext(DbContextOptions<LocalAiDbContext> option
                 .WithOne(c => c.Owner)
                 .HasForeignKey(c => c.OwnerId)
                 .OnDelete(DeleteBehavior.Cascade);
+            e.HasMany(u => u.Documents)
+                .WithOne(d => d.Owner)
+                .HasForeignKey(d => d.OwnerId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<DocumentEntity>(e =>
+        {
+            e.ToTable("documents");
+            e.HasKey(d => d.Id);
+            e.HasIndex(d => new { d.OwnerId, d.CreatedAt });
+            e.HasIndex(d => d.Status);
+            e.Property(d => d.Title).HasMaxLength(200).IsRequired();
+            e.Property(d => d.FileName).HasMaxLength(260).IsRequired();
+            e.Property(d => d.ContentType).HasMaxLength(100).IsRequired();
+            e.Property(d => d.Status).HasMaxLength(16).IsRequired();
+            e.Property(d => d.Error).HasMaxLength(500);
+            e.Property(d => d.ContentJson).IsRequired();
+            e.HasMany(d => d.Chunks)
+                .WithOne(c => c.Document)
+                .HasForeignKey(c => c.DocumentId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<ChunkEntity>(e =>
+        {
+            e.ToTable("document_chunks");
+            e.HasKey(c => c.Id);
+            e.HasIndex(c => new { c.DocumentId, c.Index }).IsUnique();
+            e.Property(c => c.Text).IsRequired();
+            e.Property(c => c.Embedding).IsRequired();
         });
 
         modelBuilder.Entity<ConversationEntity>(e =>

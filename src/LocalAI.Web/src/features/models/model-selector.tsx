@@ -12,7 +12,8 @@ interface ModelSelectorProps {
 
 export function ModelSelector({ models, selected, loading, disabled, onSelect, onRefresh }: ModelSelectorProps) {
   const usable = models.filter((m) => m.isAvailable);
-  const unusable = models.filter((m) => !m.isAvailable);
+  // Embedding models are only for documents; they never appear as chat choices.
+  const unusable = models.filter((m) => !m.isAvailable && !m.isEmbedding);
 
   return (
     <div className="model-selector">
