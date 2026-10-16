@@ -17,6 +17,37 @@ namespace LocalAI.Persistence.Migrations
 #pragma warning disable 612, 618
             modelBuilder.HasAnnotation("ProductVersion", "8.0.11");
 
+            modelBuilder.Entity("LocalAI.Persistence.Entities.ChunkEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("DocumentId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<byte[]>("Embedding")
+                        .IsRequired()
+                        .HasColumnType("BLOB");
+
+                    b.Property<int>("Index")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int?>("Page")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Text")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DocumentId", "Index")
+                        .IsUnique();
+
+                    b.ToTable("document_chunks", (string)null);
+                });
+
             modelBuilder.Entity("LocalAI.Persistence.Entities.ConversationEntity", b =>
                 {
                     b.Property<Guid>("Id")
@@ -44,6 +75,67 @@ namespace LocalAI.Persistence.Migrations
                     b.HasIndex("OwnerId", "UpdatedAt");
 
                     b.ToTable("conversations", (string)null);
+                });
+
+            modelBuilder.Entity("LocalAI.Persistence.Entities.DocumentEntity", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("TEXT");
+
+                    b.Property<int>("CharacterCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<int>("ChunkCount")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("ContentJson")
+                        .IsRequired()
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("ContentType")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("TEXT");
+
+                    b.Property<long>("CreatedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Error")
+                        .HasMaxLength(500)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("FileName")
+                        .IsRequired()
+                        .HasMaxLength(260)
+                        .HasColumnType("TEXT");
+
+                    b.Property<Guid>("OwnerId")
+                        .HasColumnType("TEXT");
+
+                    b.Property<long?>("ProcessedAt")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<long>("SizeBytes")
+                        .HasColumnType("INTEGER");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("TEXT");
+
+                    b.Property<string>("Title")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("TEXT");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Status");
+
+                    b.HasIndex("OwnerId", "CreatedAt");
+
+                    b.ToTable("documents", (string)null);
                 });
 
             modelBuilder.Entity("LocalAI.Persistence.Entities.MessageEntity", b =>
@@ -93,6 +185,9 @@ namespace LocalAI.Persistence.Migrations
 
                     b.Property<int>("Sequence")
                         .HasColumnType("INTEGER");
+
+                    b.Property<string>("SourcesJson")
+                        .HasColumnType("TEXT");
 
                     b.Property<string>("Status")
                         .IsRequired()
@@ -153,12 +248,34 @@ namespace LocalAI.Persistence.Migrations
                     b.ToTable("users", (string)null);
                 });
 
+            modelBuilder.Entity("LocalAI.Persistence.Entities.ChunkEntity", b =>
+                {
+                    b.HasOne("LocalAI.Persistence.Entities.DocumentEntity", "Document")
+                        .WithMany("Chunks")
+                        .HasForeignKey("DocumentId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Document");
+                });
+
             modelBuilder.Entity("LocalAI.Persistence.Entities.ConversationEntity", b =>
                 {
                     b.HasOne("LocalAI.Persistence.Entities.UserEntity", "Owner")
                         .WithMany("Conversations")
                         .HasForeignKey("OwnerId")
                         .OnDelete(DeleteBehavior.Cascade);
+
+                    b.Navigation("Owner");
+                });
+
+            modelBuilder.Entity("LocalAI.Persistence.Entities.DocumentEntity", b =>
+                {
+                    b.HasOne("LocalAI.Persistence.Entities.UserEntity", "Owner")
+                        .WithMany("Documents")
+                        .HasForeignKey("OwnerId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Owner");
                 });
@@ -179,9 +296,16 @@ namespace LocalAI.Persistence.Migrations
                     b.Navigation("Messages");
                 });
 
+            modelBuilder.Entity("LocalAI.Persistence.Entities.DocumentEntity", b =>
+                {
+                    b.Navigation("Chunks");
+                });
+
             modelBuilder.Entity("LocalAI.Persistence.Entities.UserEntity", b =>
                 {
                     b.Navigation("Conversations");
+
+                    b.Navigation("Documents");
                 });
 #pragma warning restore 612, 618
         }

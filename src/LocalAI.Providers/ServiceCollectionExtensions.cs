@@ -1,4 +1,5 @@
 using LocalAI.Core.Interfaces;
+using LocalAI.Providers.Documents;
 using LocalAI.Providers.Ollama;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -32,7 +33,11 @@ public static class ServiceCollectionExtensions
             });
 
         services.TryAddSingleton<OllamaClient>();
-        services.TryAddSingleton<IChatProvider, OllamaProvider>();
+        services.TryAddSingleton<OllamaProvider>();
+        services.TryAddSingleton<IChatProvider>(sp => sp.GetRequiredService<OllamaProvider>());
+        services.TryAddSingleton<IEmbeddingProvider>(sp => sp.GetRequiredService<OllamaProvider>());
+        services.AddSingleton<ITextExtractor, PdfTextExtractor>();
+        services.AddSingleton<ITextExtractor, PlainTextExtractor>();
         return services;
     }
 }

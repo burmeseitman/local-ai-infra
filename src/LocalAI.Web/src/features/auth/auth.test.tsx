@@ -3,13 +3,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it } from "vitest";
 import { listConversations } from "../../api/conversations";
 import { App } from "../../app";
-import { authUser, installFetch, json, modelList, overview, signedIn } from "../../test/fake-api";
+import { authUser, documentList, installFetch, json, modelList, overview, signedIn } from "../../test/fake-api";
 
 function dashboardRoutes() {
   return {
     "GET /api/system/overview": () => json(overview()),
     "GET /api/models": () => json(modelList([])),
     "GET /api/conversations": () => json({ conversations: [] }),
+    "GET /api/documents": () => json(documentList()),
   };
 }
 

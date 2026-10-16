@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { HistoryIcon, PlusIcon, RefreshIcon } from "../components/icons";
+import { FileIcon, HistoryIcon, PlusIcon, RefreshIcon } from "../components/icons";
 import { Notice } from "../components/notice";
 import { Composer } from "../features/chat/composer";
 import { MessageList } from "../features/chat/message-list";
@@ -27,9 +27,10 @@ interface ChatPageProps {
   onSelectModel: (name: string) => void;
   status: PlatformStatus;
   maxMessageLength: number;
+  documents: { ready: number; enabled: boolean; onToggle: (value: boolean) => void };
 }
 
-export function ChatPage({ chat, history, models, selectedModel, onSelectModel, status, maxMessageLength }: ChatPageProps) {
+export function ChatPage({ chat, history, models, selectedModel, onSelectModel, status, maxMessageLength, documents }: ChatPageProps) {
   const [historyOpen, setHistoryOpen] = useState(false);
   const modelList = models.data?.models ?? [];
   const noUsableModels = models.data !== null && !modelList.some((m) => m.isAvailable);
@@ -175,6 +176,30 @@ export function ChatPage({ chat, history, models, selectedModel, onSelectModel, 
             )
           }
         />
+
+        <div className="doc-toggle">
+          <label className={`chip${documents.enabled ? " is-on" : ""}${documents.ready === 0 ? " is-disabled" : ""}`}>
+            <input
+              type="checkbox"
+              checked={documents.enabled}
+              disabled={documents.ready === 0 || chat.isStreaming}
+              onChange={(e) => documents.onToggle(e.target.checked)}
+            />
+            <FileIcon />
+            <span>Use my documents</span>
+          </label>
+          <span className="muted small">
+            {documents.ready === 0 ? (
+              <>
+                No indexed documents yet. <a href="#/documents">Add documents</a>
+              </>
+            ) : documents.enabled ? (
+              `Answers cite your ${documents.ready} document${documents.ready === 1 ? "" : "s"}.`
+            ) : (
+              `${documents.ready} document${documents.ready === 1 ? "" : "s"} available.`
+            )}
+          </span>
+        </div>
 
         <Composer
           maxLength={maxMessageLength}

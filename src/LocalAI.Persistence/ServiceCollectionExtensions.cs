@@ -30,6 +30,7 @@ public static class ServiceCollectionExtensions
         services.AddDbContext<LocalAiDbContext>(db => db.UseSqlite(connectionString));
         services.AddScoped<IConversationStore, SqliteConversationStore>();
         services.AddScoped<IUserStore, SqliteUserStore>();
+        services.AddScoped<IDocumentStore, SqliteDocumentStore>();
         return services;
     }
 

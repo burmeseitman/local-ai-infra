@@ -14,6 +14,7 @@ internal sealed class UserEntity
     public DateTimeOffset CreatedAt { get; set; }
     public DateTimeOffset? LastLoginAt { get; set; }
     public List<ConversationEntity> Conversations { get; set; } = [];
+    public List<DocumentEntity> Documents { get; set; } = [];
 }
 
 internal sealed class ConversationEntity
@@ -46,5 +47,42 @@ internal sealed class MessageEntity
     public double? LoadDurationMs { get; set; }
     public double? GenerationDurationMs { get; set; }
     public DateTimeOffset CreatedAt { get; set; }
+
+    /// <summary>JSON array of document passages the reply was grounded on (null when none).</summary>
+    public string? SourcesJson { get; set; }
     public ConversationEntity? Conversation { get; set; }
+}
+
+internal sealed class DocumentEntity
+{
+    public Guid Id { get; set; }
+    public Guid OwnerId { get; set; }
+    public UserEntity? Owner { get; set; }
+    public string Title { get; set; } = string.Empty;
+    public string FileName { get; set; } = string.Empty;
+    public string ContentType { get; set; } = string.Empty;
+    public long SizeBytes { get; set; }
+
+    /// <summary>Extracted text as a JSON array of { page, text } segments (kept for re-indexing).</summary>
+    public string ContentJson { get; set; } = "[]";
+    public int CharacterCount { get; set; }
+    public int ChunkCount { get; set; }
+    public string Status { get; set; } = string.Empty;
+    public string? Error { get; set; }
+    public DateTimeOffset CreatedAt { get; set; }
+    public DateTimeOffset? ProcessedAt { get; set; }
+    public List<ChunkEntity> Chunks { get; set; } = [];
+}
+
+internal sealed class ChunkEntity
+{
+    public Guid Id { get; set; }
+    public Guid DocumentId { get; set; }
+    public DocumentEntity? Document { get; set; }
+    public int Index { get; set; }
+    public int? Page { get; set; }
+    public string Text { get; set; } = string.Empty;
+
+    /// <summary>float32 vector, little-endian.</summary>
+    public byte[] Embedding { get; set; } = [];
 }

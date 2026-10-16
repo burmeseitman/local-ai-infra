@@ -257,5 +257,11 @@ public class ConversationEndpointTests : IDisposable
             builder.UseSetting("Persistence:ConnectionString", $"Data Source={path}");
             builder.UseSetting("Session:KeysDirectory", keys);
         }
+
+        protected override void ConfigureClient(HttpClient client)
+        {
+            base.ConfigureClient(client);
+            client.DefaultRequestHeaders.Add("X-LocalAI-Request", "1");
+        }
     }
 }

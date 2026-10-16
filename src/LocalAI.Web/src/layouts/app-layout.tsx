@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ActivityIcon, ChatIcon, CubeIcon, LockIcon, UserIcon, UsersIcon } from "../components/icons";
+import { ActivityIcon, ChatIcon, CubeIcon, FileIcon, LockIcon, UserIcon, UsersIcon } from "../components/icons";
 import { ConnectionSummary } from "../features/system/connection-summary";
 import type { PlatformStatus } from "../features/system/platform-status";
 import type { Route } from "../hooks/use-hash-route";
@@ -7,6 +7,7 @@ import type { AuthUser } from "../types/api";
 
 const NAV: { route: Route; label: string; icon: ReactNode; adminOnly?: boolean }[] = [
   { route: "chat", label: "Chat", icon: <ChatIcon /> },
+  { route: "documents", label: "Documents", icon: <FileIcon /> },
   { route: "models", label: "Models", icon: <CubeIcon /> },
   { route: "system", label: "System", icon: <ActivityIcon /> },
   { route: "users", label: "Users", icon: <UsersIcon />, adminOnly: true },
@@ -31,7 +32,7 @@ export function AppLayout({ route, user, onSignOut, chatHref, status, generating
           <span className="brand__mark" aria-hidden="true" />
           <div>
             <div className="brand__name">Local AI Infrastructure</div>
-            <div className="brand__sub">Phase 2 · Ollama</div>
+            <div className="brand__sub">Phase 3 · Ollama</div>
           </div>
         </div>
 

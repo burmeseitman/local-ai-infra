@@ -52,17 +52,30 @@ public sealed class ModelCatalog(
         }
     }
 
-    public bool IsUsable(ModelInfo model) => !model.IsRemote || options.Value.AllowRemoteModels;
+    /// <summary>Whether the model may be used for chat (embedding-only and disallowed remote models may not).</summary>
+    public bool IsUsable(ModelInfo model) => !model.IsEmbedding && (!model.IsRemote || options.Value.AllowRemoteModels);
 
     /// <summary>Returns the installed, policy-permitted model matching <paramref name="requested"/>.</summary>
     /// <exception cref="InferenceException">The model is missing, not allowed, or the provider is down.</exception>
-    public async Task<ModelInfo> ResolveAsync(string requested, CancellationToken cancellationToken)
+    public async Task<ModelInfo> ResolveAsync(string requested, CancellationToken cancellationToken, bool allowEmbedding = false)
     {
         // Always re-check against the provider for inference so a just-deleted model is caught.
         var models = await GetModelsAsync(forceRefresh: false, cancellationToken);
         var match = Find(models, requested)
             ?? Find(await GetModelsAsync(forceRefresh: true, cancellationToken), requested)
             ?? throw InferenceException.ModelNotFound(requested);
+
+        if (allowEmbedding && match.IsEmbedding && !match.IsRemote)
+        {
+            return match;
+        }
+
+        if (match.IsEmbedding)
+        {
+            throw new InferenceException(
+                InferenceErrorCode.ModelNotAllowed,
+                $"Model '{match.Name}' is an embedding model and cannot be used for chat.");
+        }
 
         if (!IsUsable(match))
         {

@@ -1,15 +1,18 @@
 import type {
   ChatRequest,
+  MessageSource,
   StreamDeltaEvent,
   StreamDoneEvent,
   StreamErrorEvent,
   StreamStartEvent,
 } from "../types/api";
 import { SseParser } from "../utils/sse-parser";
-import { API_BASE_URL, ApiError, CREDENTIALS, isAbortError, networkError, toApiError } from "./http";
+import { API_BASE_URL, ApiError, CREDENTIALS, CSRF_HEADERS, isAbortError, networkError, toApiError } from "./http";
 
 export interface StreamHandlers {
   onStart?: (event: StreamStartEvent) => void;
+  /** Document passages the answer is grounded on (document chat only; may be empty). */
+  onSources?: (sources: MessageSource[]) => void;
   onDelta: (text: string) => void;
 }
 
@@ -41,7 +44,7 @@ export async function streamSse(
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method: "POST",
-      headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+      headers: { ...CSRF_HEADERS, "Content-Type": "application/json", Accept: "text/event-stream" },
       body: JSON.stringify(body),
       credentials: CREDENTIALS,
       signal,
@@ -73,6 +76,9 @@ export async function streamSse(
         switch (message.event) {
           case "start":
             handlers.onStart?.(parsePayload<StreamStartEvent>(message.data));
+            break;
+          case "sources":
+            handlers.onSources?.(parsePayload<{ sources: MessageSource[] }>(message.data).sources);
             break;
           case "delta":
             handlers.onDelta(parsePayload<StreamDeltaEvent>(message.data).content);

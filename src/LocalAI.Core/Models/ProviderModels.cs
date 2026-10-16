@@ -3,6 +3,7 @@ namespace LocalAI.Core.Models;
 /// <summary>
 /// Metadata for a model reported by the provider. Unknown values stay null.
 /// <see cref="Name"/> is the full identifier used for inference (e.g. "qwen2.5:0.5b").
+/// <see cref="IsEmbedding"/> marks embedding-only models, which cannot be used for chat.
 /// </summary>
 public sealed record ModelInfo(
     string Name,
@@ -14,7 +15,8 @@ public sealed record ModelInfo(
     DateTimeOffset? ModifiedAt,
     string? ParameterSize,
     string? QuantizationLevel,
-    bool IsRemote);
+    bool IsRemote,
+    bool IsEmbedding = false);
 
 /// <summary>Result of a cheap connectivity probe (no inference).</summary>
 public sealed record ProviderHealth(

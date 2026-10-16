@@ -38,6 +38,8 @@ interface Options {
   /** Conversation selected by the URL; null means a new, unsaved chat. */
   conversationId: string | null;
   model: string | null;
+  /** Ground replies in the user's indexed documents. */
+  useDocuments: boolean;
   /** Called with a new conversation's id so the URL can follow. */
   onCreated: (id: string) => void;
   /** Called whenever stored conversations changed (to refresh the list). */
@@ -50,7 +52,7 @@ type StartStream = (signal: AbortSignal, handlers: StreamHandlers) => Promise<St
  * Server-backed chat. The server owns history: this hook sends only the new message,
  * renders the streamed reply optimistically, and reloads history when the URL changes.
  */
-export function useConversation({ conversationId: routeId, model, onCreated, onChanged }: Options): ConversationController {
+export function useConversation({ conversationId: routeId, model, useDocuments, onCreated, onChanged }: Options): ConversationController {
   const [state, dispatch] = useReducer(conversationReducer, initialConversationState);
   const controllerRef = useRef<AbortController | null>(null);
   // Synchronous guard spanning conversation creation and streaming.
@@ -96,6 +98,7 @@ export function useConversation({ conversationId: routeId, model, onCreated, onC
     try {
       const done = await start(controller.signal, {
         onDelta: (text) => dispatch({ type: "delta", id: assistantId, text }),
+        onSources: (sources) => dispatch({ type: "sources", id: assistantId, sources }),
       });
       dispatch({ type: "done", id: assistantId, stats: done.stats, finishReason: done.finishReason });
     } catch (error) {
@@ -145,12 +148,12 @@ export function useConversation({ conversationId: routeId, model, onCreated, onC
         }
         const id = targetId;
         await run(assistant.id, (signal, handlers) =>
-          streamConversationMessage(id, { model, content }, handlers, signal),
+          streamConversationMessage(id, { model, content, ...(useDocuments ? { useDocuments } : {}) }, handlers, signal),
         );
       })();
       return true;
     },
-    [isCurrent, model, routeId, run, state.conversationId],
+    [isCurrent, model, routeId, run, state.conversationId, useDocuments],
   );
 
   const messages = isCurrent ? state.messages : [];
@@ -172,8 +175,10 @@ export function useConversation({ conversationId: routeId, model, onCreated, onC
     busyRef.current = true;
     const assistant: ChatMessage = { id: newId(), role: "assistant", content: "", status: "streaming", model };
     dispatch({ type: "restart", replaceId: failed.id, assistant });
-    void run(assistant.id, (signal, handlers) => streamRegenerate(id, { model }, handlers, signal));
-  }, [model, run, state.conversationId, state.messages]);
+    void run(assistant.id, (signal, handlers) =>
+      streamRegenerate(id, { model, ...(useDocuments ? { useDocuments } : {}) }, handlers, signal),
+    );
+  }, [model, run, state.conversationId, state.messages, useDocuments]);
 
   const stop = useCallback(() => controllerRef.current?.abort(), []);
 

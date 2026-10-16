@@ -85,7 +85,9 @@ export function ModelsPage({ models, selectedModel, onSelectModel, selectionLock
                     <td className="num mono">{m.isRemote ? "remote" : formatBytes(m.sizeBytes)}</td>
                     <td>
                       <div className="badges">
-                        {m.isAvailable ? (
+                        {m.isEmbedding ? (
+                          <StatusDot tone="idle" label="Embedding (documents)" />
+                        ) : m.isAvailable ? (
                           <StatusDot tone="ok" label="Available" />
                         ) : (
                           <StatusDot tone="warn" label="Remote · disabled" />

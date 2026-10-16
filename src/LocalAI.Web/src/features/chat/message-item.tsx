@@ -3,6 +3,7 @@ import { CopyButton } from "../../components/copy-button";
 import { RefreshIcon } from "../../components/icons";
 import { Markdown } from "../../components/markdown";
 import { summarizeStats } from "../../utils/format";
+import type { MessageSource } from "../../types/api";
 import type { ChatMessage } from "./chat-state";
 
 interface MessageItemProps {
@@ -42,6 +43,8 @@ export const MessageItem = memo(function MessageItem({ message, onRetry }: Messa
         {streaming && message.content && <span className="cursor" aria-hidden="true" />}
       </div>
 
+      {message.sources && <SourceList sources={message.sources} streaming={streaming} />}
+
       {message.status === "stopped" && (
         <p className="msg__note">Generation stopped{message.content ? "; partial response kept." : "."}</p>
       )}
@@ -68,3 +71,27 @@ export const MessageItem = memo(function MessageItem({ message, onRetry }: Messa
     </article>
   );
 });
+
+function SourceList({ sources, streaming }: { sources: MessageSource[]; streaming: boolean }) {
+  if (sources.length === 0) {
+    return streaming ? null : <p className="msg__note">No matching passages were found in your documents.</p>;
+  }
+  return (
+    <details className="sources" open>
+      <summary>
+        {sources.length} source{sources.length === 1 ? "" : "s"} from your documents
+      </summary>
+      <ol className="sources__list">
+        {sources.map((s) => (
+          <li key={s.number} value={s.number}>
+            <span className="sources__title">
+              {s.title}
+              {s.page != null && <span className="muted"> · p. {s.page}</span>}
+            </span>
+            <span className="sources__snippet">{s.snippet}</span>
+          </li>
+        ))}
+      </ol>
+    </details>
+  );
+}

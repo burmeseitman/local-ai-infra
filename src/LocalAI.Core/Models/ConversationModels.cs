@@ -18,7 +18,8 @@ public sealed record StoredMessage(
     string? ErrorCode,
     string? ErrorMessage,
     ChatCompletionStats? Stats,
-    DateTimeOffset CreatedAt);
+    DateTimeOffset CreatedAt,
+    IReadOnlyList<MessageSource>? Sources = null);
 
 public sealed record NewMessage(
     ChatRole Role,
@@ -27,7 +28,8 @@ public sealed record NewMessage(
     string? Model = null,
     string? ErrorCode = null,
     string? ErrorMessage = null,
-    ChatCompletionStats? Stats = null);
+    ChatCompletionStats? Stats = null,
+    IReadOnlyList<MessageSource>? Sources = null);
 
 public sealed record Conversation(
     Guid Id,

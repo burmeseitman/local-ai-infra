@@ -51,6 +51,9 @@ public sealed record StreamStartEvent(string RequestId, string Model, DateTimeOf
 
 public sealed record StreamDeltaEvent(string Content);
 
+/// <summary>Sent once, before the first delta, when the reply is grounded in documents (may be empty).</summary>
+public sealed record StreamSourcesEvent(IReadOnlyList<MessageSource> Sources);
+
 public sealed record StreamDoneEvent(string? FinishReason, CompletionStatsDto? Stats);
 
 public sealed record StreamErrorEvent(string Code, string Message, bool Retryable);

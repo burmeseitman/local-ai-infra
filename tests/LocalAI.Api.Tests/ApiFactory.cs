@@ -16,6 +16,8 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
 {
     public FakeChatProvider Provider { get; } = new();
 
+    public FakeEmbeddingProvider Embeddings { get; } = new();
+
     public int MaxConcurrentGenerations { get; init; } = 2;
 
     /// <summary>Each factory gets its own SQLite file so tests never share conversations.</summary>
@@ -65,11 +67,22 @@ public sealed class ApiFactory : WebApplicationFactory<Program>
         builder.UseSetting("Api:MaxRequestBodyBytes", "65536");
         builder.UseSetting("Persistence:ConnectionString", $"Data Source={DatabasePath}");
         builder.UseSetting("Session:KeysDirectory", KeysDirectory);
+        // The bag-of-words FakeEmbeddingProvider scores lower than a real embedding model.
+        builder.UseSetting("Rag:MinScore", "0.2");
         builder.ConfigureTestServices(services =>
         {
             services.RemoveAll<IChatProvider>();
             services.AddSingleton<IChatProvider>(Provider);
+            services.RemoveAll<IEmbeddingProvider>();
+            services.AddSingleton<IEmbeddingProvider>(Embeddings);
         });
+    }
+
+    /// <summary>Clients behave like the dashboard and send the CSRF header on every request.</summary>
+    protected override void ConfigureClient(HttpClient client)
+    {
+        base.ConfigureClient(client);
+        client.DefaultRequestHeaders.Add("X-LocalAI-Request", "1");
     }
 
     protected override void Dispose(bool disposing)

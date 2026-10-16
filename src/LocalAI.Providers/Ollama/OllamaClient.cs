@@ -31,6 +31,31 @@ internal sealed class OllamaClient(
     public Task<OllamaTagsResponse> ListModelsAsync(CancellationToken cancellationToken) =>
         GetJsonAsync<OllamaTagsResponse>("api/tags", cancellationToken);
 
+    public async Task<OllamaEmbedResponse> EmbedAsync(OllamaEmbedRequest request, CancellationToken cancellationToken)
+    {
+        var limit = options.Value.InferenceTimeout;
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(limit);
+        return await Guard(
+            async () =>
+            {
+                using var response = await Http.PostAsJsonAsync("api/embed", request, OllamaJson.Options, timeout.Token);
+                await EnsureSuccessAsync(response, request.Model, timeout.Token);
+                await using var stream = await response.Content.ReadAsStreamAsync(timeout.Token);
+                try
+                {
+                    return await JsonSerializer.DeserializeAsync<OllamaEmbedResponse>(stream, OllamaJson.Options, timeout.Token)
+                        ?? throw InferenceException.InvalidResponse("Ollama returned an empty embedding response.");
+                }
+                catch (JsonException ex)
+                {
+                    throw InferenceException.InvalidResponse($"Malformed embedding response: {ex.Message}", ex);
+                }
+            },
+            limit,
+            cancellationToken);
+    }
+
     public async IAsyncEnumerable<OllamaChatChunk> StreamChatAsync(
         OllamaChatRequest request,
         [EnumeratorCancellation] CancellationToken cancellationToken)

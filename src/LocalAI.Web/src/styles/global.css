@@ -1284,6 +1284,142 @@ a {
   white-space: nowrap;
 }
 
+/* ---------- Documents and sources ---------- */
+
+.dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  margin-bottom: 16px;
+  padding: 24px 16px;
+  border: 2px dashed var(--border-strong);
+  border-radius: var(--radius);
+  background: var(--surface);
+  text-align: center;
+}
+
+.dropzone.is-dragging {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.dropzone.is-disabled {
+  opacity: 0.6;
+}
+
+.dropzone__icon {
+  width: 24px;
+  height: 24px;
+  color: var(--text-muted);
+}
+
+.dropzone__text {
+  margin: 0;
+}
+
+.link-button {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.link-button:disabled {
+  color: var(--text-muted);
+  cursor: not-allowed;
+}
+
+.upload-list {
+  margin: 0 0 16px;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 4px;
+  font-size: 13px;
+}
+
+.upload-list li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.upload-list li.is-error {
+  color: var(--error);
+}
+
+.doc-toggle {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 10px;
+}
+
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  font-size: 12.5px;
+  cursor: pointer;
+  user-select: none;
+}
+
+.chip input {
+  margin: 0;
+}
+
+.chip.is-on {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.chip.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.doc-toggle + .composer {
+  margin-top: 8px;
+}
+
+.sources {
+  margin-top: 10px;
+  font-size: 12.5px;
+}
+
+.sources summary {
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.sources__list {
+  margin: 6px 0 0;
+  padding-left: 22px;
+  display: grid;
+  gap: 6px;
+}
+
+.sources__title {
+  display: block;
+  font-weight: 600;
+}
+
+.sources__snippet {
+  display: block;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
 /* ---------- Responsive ---------- */
 
 @media (max-width: 820px) {

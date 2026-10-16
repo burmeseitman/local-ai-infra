@@ -2,11 +2,13 @@
 #
 #   cp .env.example .env              # optional; every value has a safe default
 #   docker compose up -d --build
-#   docker compose exec ollama ollama pull qwen2.5:0.5b
+#   docker compose exec ollama ollama pull qwen2.5:3b         # chat model
+#   docker compose exec ollama ollama pull nomic-embed-text   # for document chat
 #   open http://localhost:8080
 #
 # Optional overlays (see README):
 #   NVIDIA GPU:          -f infrastructure/compose/docker-compose.gpu.yml
+#   Native Ollama (Mac): -f infrastructure/compose/docker-compose.native-ollama.yml  (Apple GPU)
 #   Ollama on localhost: -f infrastructure/compose/docker-compose.ollama-port.yml
 
 name: local-ai-infrastructure
@@ -68,7 +70,9 @@ services:
       Api__MaxConcurrentGenerations: ${API_MAX_CONCURRENT_GENERATIONS:-2}
       Ollama__BaseUrl: http://ollama:11434
       Ollama__InferenceTimeout: ${OLLAMA_INFERENCE_TIMEOUT:-00:05:00}
-      Chat__DefaultModel: ${OLLAMA_DEFAULT_MODEL:-qwen2.5:0.5b}
+      Chat__DefaultModel: ${OLLAMA_DEFAULT_MODEL:-qwen2.5:3b}
+      Rag__EmbeddingModel: ${RAG_EMBEDDING_MODEL:-nomic-embed-text}
+      Ollama__ContextLength: ${OLLAMA_CONTEXT_LENGTH:-8192}
       Chat__MaxMessageLength: ${CHAT_MAX_MESSAGE_LENGTH:-8000}
       Chat__DefaultMaxTokens: ${CHAT_DEFAULT_MAX_TOKENS:-1024}
       Chat__MaxTokensLimit: ${CHAT_MAX_TOKENS_LIMIT:-4096}

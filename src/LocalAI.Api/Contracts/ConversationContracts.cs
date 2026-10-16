@@ -7,10 +7,11 @@ public sealed record CreateConversationRequest(string? Title = null);
 public sealed record RenameConversationRequest(string? Title);
 
 /// <summary>Body of POST /api/conversations/{id}/messages/stream. Only the new message is sent.</summary>
-public sealed record SendMessageRequest(string? Model, string? Content, double? Temperature = null, int? MaxTokens = null);
+/// <summary><see cref="UseDocuments"/> grounds the reply in the user's indexed documents.</summary>
+public sealed record SendMessageRequest(string? Model, string? Content, double? Temperature = null, int? MaxTokens = null, bool UseDocuments = false);
 
 /// <summary>Body of POST /api/conversations/{id}/regenerate/stream.</summary>
-public sealed record RegenerateRequest(string? Model, double? Temperature = null, int? MaxTokens = null);
+public sealed record RegenerateRequest(string? Model, double? Temperature = null, int? MaxTokens = null, bool UseDocuments = false);
 
 public sealed record ConversationSummaryDto(
     Guid Id,
@@ -37,7 +38,8 @@ public sealed record StoredMessageDto(
     string? Model,
     MessageErrorDto? Error,
     CompletionStatsDto? Stats,
-    DateTimeOffset CreatedAt)
+    DateTimeOffset CreatedAt,
+    IReadOnlyList<MessageSource>? Sources)
 {
     public static StoredMessageDto From(StoredMessage m) => new(
         m.Id,
@@ -48,7 +50,8 @@ public sealed record StoredMessageDto(
         m.Model,
         m.ErrorCode is null ? null : new MessageErrorDto(m.ErrorCode, m.ErrorMessage),
         CompletionStatsDto.From(m.Stats),
-        m.CreatedAt);
+        m.CreatedAt,
+        m.Sources);
 }
 
 public sealed record ConversationDto(

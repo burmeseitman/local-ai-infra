@@ -18,7 +18,8 @@ internal sealed class ChatStreamResult(
     string model,
     Func<CancellationToken, IAsyncEnumerable<ChatStreamChunk>> source,
     Guid? conversationId = null,
-    IDisposable? owned = null) : IResult
+    IDisposable? owned = null,
+    IReadOnlyList<MessageSource>? sources = null) : IResult
 {
     public const string ContentType = "text/event-stream";
 
@@ -54,6 +55,11 @@ internal sealed class ChatStreamResult(
                 "start",
                 new StreamStartEvent(httpContext.TraceIdentifier, model, DateTimeOffset.UtcNow, conversationId),
                 cancellationToken);
+
+            if (sources is not null)
+            {
+                await writer.WriteAsync("sources", new StreamSourcesEvent(sources), cancellationToken);
+            }
 
             await foreach (var chunk in source(cancellationToken))
             {

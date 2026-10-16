@@ -1,4 +1,4 @@
-import type { CompletionStats, StoredMessage } from "../../types/api";
+import type { CompletionStats, MessageSource, StoredMessage } from "../../types/api";
 
 export type MessageStatus = "complete" | "streaming" | "stopped" | "error";
 
@@ -17,12 +17,15 @@ export interface ChatMessage {
   error?: ChatError;
   stats?: CompletionStats | null;
   finishReason?: string | null;
+  /** Document passages the reply is grounded on; undefined when documents were not used. */
+  sources?: MessageSource[] | null;
 }
 
 export type ChatAction =
   | { type: "submit"; user: ChatMessage; assistant: ChatMessage }
   | { type: "restart"; replaceId: string; assistant: ChatMessage }
   | { type: "delta"; id: string; text: string }
+  | { type: "sources"; id: string; sources: MessageSource[] }
   | { type: "done"; id: string; stats: CompletionStats | null; finishReason: string | null }
   | { type: "stopped"; id: string }
   | { type: "error"; id: string; error: ChatError }
@@ -40,6 +43,8 @@ export function chatReducer(messages: ChatMessage[], action: ChatAction): ChatMe
       return messages.map((m) => (m.id === action.replaceId ? action.assistant : m));
     case "delta":
       return update(messages, action.id, (m) => ({ ...m, content: m.content + action.text }));
+    case "sources":
+      return update(messages, action.id, (m) => ({ ...m, sources: action.sources }));
     case "done":
       return update(messages, action.id, (m) => ({
         ...m,
@@ -100,6 +105,7 @@ export function fromStored(message: StoredMessage): ChatMessage {
     status: message.status,
     model: message.model ?? undefined,
     stats: message.stats,
+    sources: message.sources,
     error: message.error
       ? { code: message.error.code, message: message.error.message ?? "The generation failed.", retryable: true }
       : undefined,

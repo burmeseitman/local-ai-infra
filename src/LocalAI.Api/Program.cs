@@ -71,7 +71,7 @@ services.AddOptions<CorsOptions>()
             cors.AddDefaultPolicy(policy => policy
                 .WithOrigins(api.Value.CorsAllowedOrigins)
                 .WithMethods("GET", "POST", "PATCH", "DELETE")
-                .WithHeaders("Content-Type", "Accept")
+                .WithHeaders("Content-Type", "Accept", CsrfHeaderGuard.HeaderName)
                 .AllowCredentials());
         }
     });
@@ -150,6 +150,7 @@ app.Use(static (context, next) =>
     return next(context);
 });
 app.UseRequestSizeGuard();
+app.UseCsrfHeaderGuard();
 app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
@@ -166,6 +167,7 @@ app.MapUserEndpoints();
 app.MapStatusEndpoints();
 app.MapChatEndpoints();
 app.MapConversationEndpoints();
+app.MapDocumentEndpoints();
 
 await app.Services.InitializeDatabaseAsync();
 await app.RunAsync();

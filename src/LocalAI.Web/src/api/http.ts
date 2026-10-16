@@ -6,6 +6,12 @@ export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\
 /** Same-origin by default; cross-origin API deployments need cookies sent explicitly. */
 const CREDENTIALS: RequestCredentials = API_BASE_URL ? "include" : "same-origin";
 
+/**
+ * Required by the API on every state-changing request. Cross-site HTML forms cannot set
+ * custom headers, so this blocks CSRF even from other ports on localhost.
+ */
+export const CSRF_HEADERS: Record<string, string> = { "X-LocalAI-Request": "1" };
+
 let unauthorizedHandler: (() => void) | null = null;
 
 /** Called whenever the API reports that the session is missing or expired. */
@@ -102,7 +108,11 @@ export async function sendJson<T>(method: string, path: string, body?: unknown):
   try {
     response = await fetch(`${API_BASE_URL}${path}`, {
       method,
-      headers: body === undefined ? { Accept: "application/json" } : { "Content-Type": "application/json", Accept: "application/json" },
+      headers: {
+        ...CSRF_HEADERS,
+        Accept: "application/json",
+        ...(body === undefined ? {} : { "Content-Type": "application/json" }),
+      },
       body: body === undefined ? undefined : JSON.stringify(body),
       credentials: CREDENTIALS,
     });

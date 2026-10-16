@@ -2,6 +2,7 @@ using LocalAI.Core.Exceptions;
 using LocalAI.Core.Interfaces;
 using LocalAI.Core.Models;
 using LocalAI.Persistence.Entities;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 
 namespace LocalAI.Persistence;
@@ -95,6 +96,7 @@ internal sealed class SqliteConversationStore(LocalAiDbContext db, TimeProvider 
             LoadDurationMs = message.Stats?.LoadDuration?.TotalMilliseconds,
             GenerationDurationMs = message.Stats?.GenerationDuration?.TotalMilliseconds,
             CreatedAt = now,
+            SourcesJson = message.Sources is { Count: > 0 } sources ? JsonSerializer.Serialize(sources, SourcesJson.Options) : null,
         };
         db.Messages.Add(entity);
         conversation.UpdatedAt = now;
@@ -138,7 +140,13 @@ internal sealed class SqliteConversationStore(LocalAiDbContext db, TimeProvider 
                 FromMs(m.TotalDurationMs),
                 FromMs(m.LoadDurationMs),
                 FromMs(m.GenerationDurationMs)),
-        m.CreatedAt);
+        m.CreatedAt,
+        m.SourcesJson is null ? null : JsonSerializer.Deserialize<MessageSource[]>(m.SourcesJson, SourcesJson.Options));
 
     private static TimeSpan? FromMs(double? value) => value is null ? null : TimeSpan.FromMilliseconds(value.Value);
+}
+
+internal static class SourcesJson
+{
+    public static readonly JsonSerializerOptions Options = new(JsonSerializerDefaults.Web);
 }

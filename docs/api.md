@@ -2,6 +2,10 @@
 
 Base path: `/api`. JSON uses camelCase. Timestamps are ISO 8601 UTC. Durations are milliseconds unless the name says otherwise. When `Api__EnableSwagger=true` (the default in Development), OpenAPI is served at `/swagger/v1/swagger.json` with a UI at `/swagger`.
 
+## CSRF header
+
+**Every** `POST`, `PATCH`, and `DELETE` under `/api` must include `X-LocalAI-Request: 1` (any value works). Without it the API answers `403` with `code: "missing_request_header"`. Browsers can't attach custom headers to cross-site form posts without a CORS preflight, so this closes the gap `SameSite` cookies leave open for other ports on `localhost`. The dashboard sends it automatically; curl users add `-H 'X-LocalAI-Request: 1'`.
+
 ## Authentication
 
 The API uses **cookie sessions**. The cookie (`localai.session`) is HttpOnly and `SameSite=Strict`, lasts 7 days, and renews while in use.
@@ -236,7 +240,7 @@ data: {"finishReason":"stop","stats":{"promptTokens":42,"completionTokens":50,"t
 To cancel, close the connection (abort the `fetch`, or Ctrl-C `curl`). The server cancels the upstream Ollama request and counts the generation as `cancelled`.
 
 ```bash
-curl -N -X POST http://127.0.0.1:5080/api/chat/stream \
+curl -N -b jar -X POST -H 'X-LocalAI-Request: 1' http://127.0.0.1:5080/api/chat/stream \
   -H 'Content-Type: application/json' \
   -d '{"model":"qwen2.5:0.5b","messages":[{"role":"user","content":"Hello"}]}'
 ```
@@ -348,6 +352,15 @@ Returns **204**. Messages are deleted with the conversation. Returns 409 while a
 - **Context window:** the newest eligible stored messages that fit `Chat:MaxMessages` and `Chat:MaxConversationLength` (characters). Eligible means all user messages, plus assistant replies that are `complete` or `stopped` and non-empty. Failed replies are never sent to the model.
 - If validation fails, the model is unknown, or Ollama is down, the API responds **before** storing anything, so no orphan user message is left behind.
 
+**Document chat:** with `"useDocuments": true`, the API embeds the message and picks up to `Rag:TopK` (5) passages from **your** ready documents with cosine similarity of at least `Rag:MinScore` (0.5). It sends them to the model in a system message, numbered `[1]`, `[2]`, …, with instructions to cite them and to treat them as data, not instructions. The stream then includes a `sources` event right after `start`:
+
+```
+event: sources
+data: {"sources":[{"number":1,"documentId":"…","title":"handbook","page":1,"snippet":"Section 2: Vacation policy. Every full-time employee receives 27 paid vacation days…","score":0.789}]}
+```
+
+An empty `sources` array means nothing matched. The model is then told to say so and to answer from general knowledge. Sources are stored with the assistant message (`sources` in `GET /api/conversations/{id}`) and the system message is not.
+
 ### `POST /api/conversations/{id}/regenerate/stream`
 
 Body: `{ "model": "qwen2.5:0.5b", "temperature": null, "maxTokens": null }`.
@@ -355,11 +368,56 @@ Body: `{ "model": "qwen2.5:0.5b", "temperature": null, "maxTokens": null }`.
 Deletes the last assistant reply, if the last message is one, and streams a new reply to the last user message. This is what the UI's **Retry** button calls. The SSE format is the same as above.
 
 ```bash
-# After signing in with: curl -c jar -X POST localhost:5080/api/auth/login ...
-ID=$(curl -s -b jar -X POST localhost:5080/api/conversations -H 'Content-Type: application/json' -d '{}' | jq -r .id)
-curl -N -b jar -X POST localhost:5080/api/conversations/$ID/messages/stream \
+# After signing in with: curl -c jar -X POST -H 'X-LocalAI-Request: 1' localhost:5080/api/auth/login ...
+ID=$(curl -s -b jar -X POST -H 'X-LocalAI-Request: 1' localhost:5080/api/conversations -H 'Content-Type: application/json' -d '{}' | jq -r .id)
+curl -N -b jar -X POST -H 'X-LocalAI-Request: 1' localhost:5080/api/conversations/$ID/messages/stream \
   -H 'Content-Type: application/json' -d '{"model":"qwen2.5:0.5b","content":"Hello"}'
 curl -s -b jar localhost:5080/api/conversations/$ID | jq
 ```
 
 The stateless `/api/chat` and `/api/chat/stream` endpoints remain available for integrations that manage their own history.
+
+## Documents (Phase 3)
+
+Documents are private to their owner (another user's id → 404). Status changes from `processing` to `ready` or `failed`.
+
+### `GET /api/documents`
+
+```json
+{
+  "documents": [
+    { "id": "…", "title": "handbook", "fileName": "handbook.pdf", "contentType": "application/pdf", "sizeBytes": 20379,
+      "characterCount": 9762, "chunkCount": 10, "status": "ready", "error": null, "createdAt": "…", "processedAt": "…" }
+  ],
+  "embeddingModel": "nomic-embed-text",
+  "embeddingModelInstalled": true,
+  "maxFileBytes": 10485760,
+  "supportedExtensions": [".pdf", ".txt", ".md", ".markdown"]
+}
+```
+
+### `POST /api/documents` → `202 Accepted`
+
+Send `multipart/form-data` with the file in a field named `file`. The text is extracted and validated during the request, then chunking and embedding continue in the background. The response is the document (status `processing`) with a `Location` header; poll `GET /api/documents/{id}` until `status` is `ready` or `failed`.
+
+```bash
+curl -b jar -H 'X-LocalAI-Request: 1' -F file=@handbook.pdf localhost:5080/api/documents
+```
+
+| Status | `code` | When |
+|---|---|---|
+| 400 | `validation_failed` | Not multipart, or no `file` field |
+| 409 | `embedding_model_missing` | `Rag:EmbeddingModel` isn't installed (the message includes the `ollama pull` command) |
+| 409 | `document_limit_reached` | More than `Rag:MaxDocumentsPerUser` |
+| 413 | `document_too_large` / `payload_too_large` | Over `Rag:MaxFileBytes` (10 MB, enforced while reading), or extracted text over `Rag:MaxDocumentCharacters` |
+| 415 | `unsupported_document_type` | Not `.pdf`, `.txt`, `.md`, or `.markdown` |
+| 422 | `document_has_no_text` | Nothing extractable (for example a scanned PDF) |
+| 422 | `document_unreadable` | A damaged or password-protected PDF, or a binary file named `.txt` |
+
+When background indexing fails, the document is marked `failed` with a safe `error` message (for example "The embedding model 'nomic-embed-text' is not installed…").
+
+### `GET /api/documents/{id}` and `DELETE /api/documents/{id}` → `204`
+
+Deleting removes the document and its passages. Sources already stored in conversations keep their title and snippet.
+
+Embedding models appear in `GET /api/models` with `"isEmbedding": true` and `"isAvailable": false`. They can't be used for chat (`model_not_allowed`).

@@ -8,7 +8,7 @@ using Microsoft.Extensions.Options;
 namespace LocalAI.Providers.Ollama;
 
 /// <summary>Maps the Ollama wire protocol onto the provider-agnostic <see cref="IChatProvider"/>.</summary>
-internal sealed class OllamaProvider(OllamaClient client, IOptions<OllamaOptions> options) : IChatProvider
+internal sealed class OllamaProvider(OllamaClient client, IOptions<OllamaOptions> options) : IChatProvider, IEmbeddingProvider
 {
     public string Name => "ollama";
 
@@ -54,6 +54,7 @@ internal sealed class OllamaProvider(OllamaClient client, IOptions<OllamaOptions
             {
                 Temperature = request.Options.Temperature,
                 NumPredict = request.Options.MaxTokens,
+                NumCtx = options.Value.ContextLength,
             },
             KeepAlive = string.IsNullOrWhiteSpace(options.Value.KeepAlive) ? null : options.Value.KeepAlive,
         };
@@ -65,6 +66,24 @@ internal sealed class OllamaProvider(OllamaClient client, IOptions<OllamaOptions
                 ? new ChatStreamChunk(content, IsFinal: true, chunk.DoneReason, ToStats(chunk))
                 : new ChatStreamChunk(content);
         }
+    }
+
+    public async Task<IReadOnlyList<float[]>> EmbedAsync(string model, IReadOnlyList<string> inputs, CancellationToken cancellationToken)
+    {
+        var response = await client.EmbedAsync(
+            new OllamaEmbedRequest
+            {
+                Model = model,
+                Input = inputs,
+                KeepAlive = string.IsNullOrWhiteSpace(options.Value.KeepAlive) ? null : options.Value.KeepAlive,
+            },
+            cancellationToken);
+        if (response.Embeddings is not { } vectors || vectors.Count != inputs.Count || vectors.Any(v => v is null || v.Length == 0))
+        {
+            throw InferenceException.InvalidResponse($"Expected {inputs.Count} embedding vector(s) from Ollama.");
+        }
+
+        return vectors;
     }
 
     internal static ModelInfo ToModelInfo(OllamaModelEntry entry)
@@ -86,8 +105,18 @@ internal sealed class OllamaProvider(OllamaClient client, IOptions<OllamaOptions
             entry.ModifiedAt,
             NullIfEmpty(entry.Details?.ParameterSize),
             NullIfEmpty(entry.Details?.QuantizationLevel),
-            isRemote);
+            isRemote,
+            IsEmbeddingModel(name, entry.Details?.Family));
     }
+
+    /// <summary>
+    /// /api/tags does not report capabilities, so recognise embedding models by family
+    /// (BERT-style encoders) or by the "embed" naming convention used by Ollama's library.
+    /// </summary>
+    internal static bool IsEmbeddingModel(string name, string? family) =>
+        name.Contains("embed", StringComparison.OrdinalIgnoreCase)
+        || family is not null && (family.Equals("bert", StringComparison.OrdinalIgnoreCase)
+            || family.Equals("nomic-bert", StringComparison.OrdinalIgnoreCase));
 
     private static string? NullIfEmpty(string? value) => string.IsNullOrWhiteSpace(value) ? null : value;
 
