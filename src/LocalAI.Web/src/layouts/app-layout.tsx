@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ActivityIcon, ChatIcon, CubeIcon, FileIcon, LockIcon, UserIcon, UsersIcon } from "../components/icons";
+import { ActivityIcon, ChatIcon, CloudIcon, CubeIcon, FileIcon, LockIcon, UserIcon, UsersIcon } from "../components/icons";
 import { ConnectionSummary } from "../features/system/connection-summary";
 import type { PlatformStatus } from "../features/system/platform-status";
 import type { Route } from "../hooks/use-hash-route";
@@ -21,10 +21,12 @@ interface AppLayoutProps {
   chatHref: string;
   status: PlatformStatus;
   generating: boolean;
+  /** The selected chat model runs on Ollama's cloud rather than this machine. */
+  cloudModel: boolean;
   children: ReactNode;
 }
 
-export function AppLayout({ route, user, onSignOut, chatHref, status, generating, children }: AppLayoutProps) {
+export function AppLayout({ route, user, onSignOut, chatHref, status, generating, cloudModel, children }: AppLayoutProps) {
   return (
     <div className="shell">
       <aside className="sidebar">
@@ -63,10 +65,17 @@ export function AppLayout({ route, user, onSignOut, chatHref, status, generating
           </button>
         </section>
 
-        <p className="local-badge">
-          <LockIcon />
-          <span>Inference runs locally. No cloud AI service or API key is used.</span>
-        </p>
+        {cloudModel ? (
+          <p className="local-badge local-badge--cloud" role="status">
+            <CloudIcon />
+            <span>A cloud model is selected: prompts are sent to ollama.com. Documents are still indexed locally.</span>
+          </p>
+        ) : (
+          <p className="local-badge">
+            <LockIcon />
+            <span>Inference runs locally. No cloud AI service or API key is used.</span>
+          </p>
+        )}
       </aside>
 
       <main className="main">{children}</main>

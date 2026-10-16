@@ -194,6 +194,7 @@ public class OllamaProviderTests
     [InlineData(HttpStatusCode.NotFound, "{\"error\":\"model \\\"tiny:1b\\\" not found, try pulling it first\"}", InferenceErrorCode.ModelNotFound)]
     [InlineData(HttpStatusCode.InternalServerError, "{\"error\":\"model requires more system memory (5.5 GiB) than is available (2.1 GiB)\"}", InferenceErrorCode.ModelLoadFailed)]
     [InlineData(HttpStatusCode.BadRequest, "{\"error\":\"invalid options\"}", InferenceErrorCode.ProviderError)]
+    [InlineData(HttpStatusCode.Gone, "{\"error\":\"glm-5 was retired on July 15, 2026.\"}", InferenceErrorCode.ModelNotFound)]
     [InlineData(HttpStatusCode.BadGateway, "upstream down", InferenceErrorCode.ProviderError)]
     public async Task Http_errors_are_normalized(HttpStatusCode status, string body, InferenceErrorCode expected)
     {
@@ -202,6 +203,17 @@ public class OllamaProviderTests
         var ex = await Assert.ThrowsAsync<InferenceException>(() => Collect(provider.StreamChatAsync(Request, CancellationToken.None)));
 
         Assert.Equal(expected, ex.Code);
+    }
+
+    [Fact]
+    public async Task Retired_cloud_model_gets_a_clear_message()
+    {
+        var (provider, _) = TestHttp.CreateProvider((_, _) => Task.FromResult(TestHttp.Json("{\"error\":\"glm-5 was retired on July 15, 2026.\"}", HttpStatusCode.Gone)));
+
+        var ex = await Assert.ThrowsAsync<InferenceException>(() => Collect(provider.StreamChatAsync(Request, CancellationToken.None)));
+
+        Assert.Contains("retired by the provider", ex.Message, StringComparison.Ordinal);
+        Assert.Contains("July 15", ex.ProviderDetail, StringComparison.Ordinal);
     }
 
     [Fact]

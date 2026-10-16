@@ -36,6 +36,7 @@ export function ChatPage({ chat, history, models, selectedModel, onSelectModel, 
   const noUsableModels = models.data !== null && !modelList.some((m) => m.isAvailable);
   const providerDown = status.provider.tone === "error" || models.error?.code === "provider_unavailable";
   const title = history.conversations.data?.find((c) => c.id === chat.conversationId)?.title;
+  const cloudModel = modelList.find((m) => m.name === selectedModel)?.isRemote === true;
 
   let disabledReason: string | null = null;
   if (status.api.tone === "error") {
@@ -80,7 +81,11 @@ export function ChatPage({ chat, history, models, selectedModel, onSelectModel, 
               {title ?? "New conversation"}
             </h1>
             <p className="page-subtitle">
-              {selectedModel ? (
+              {selectedModel && cloudModel ? (
+                <>
+                  Talking to <code>{selectedModel}</code> through <strong>Ollama cloud</strong>. History is saved on this server.
+                </>
+              ) : selectedModel ? (
                 <>
                   Talking to <code>{selectedModel}</code> on your local Ollama instance. History is saved on this server.
                 </>
@@ -139,6 +144,13 @@ export function ChatPage({ chat, history, models, selectedModel, onSelectModel, 
         {!providerDown && noUsableModels && (
           <Notice tone="warn" title="No model installed">
             <NoModelsHelp suggested={models.data?.defaultModel ?? null} />
+          </Notice>
+        )}
+        {cloudModel && (
+          <Notice tone="warn" title="Cloud model selected">
+            To answer, your message and the conversation history
+            {documents.enabled ? ", plus the matching passages from your documents," : ""} are sent to ollama.com. Pick a
+            model under &ldquo;Local&rdquo; to keep everything on this machine.
           </Notice>
         )}
         {chat.loadError && (
